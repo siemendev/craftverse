@@ -966,7 +966,7 @@ function PricesSection({
               className={
                 "px-2.5 py-1 capitalize transition-colors " +
                 (kind === k
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:text-foreground")
               }
             >

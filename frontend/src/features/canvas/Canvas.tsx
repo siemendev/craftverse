@@ -324,7 +324,7 @@ function CanvasInner({ graph, onOpenItem, onChanged }: CanvasProps) {
             onClick={() => changeLayout(opt.id)}
             className={
               layoutMode === opt.id
-                ? "rounded-md bg-primary px-3 py-1.5 text-primary-foreground"
+                ? "rounded-md bg-primary/10 px-3 py-1.5 text-primary"
                 : "rounded-md px-3 py-1.5 text-muted-foreground hover:text-foreground"
             }
           >
