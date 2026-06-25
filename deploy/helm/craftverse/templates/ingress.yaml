@@ -1,7 +1,9 @@
 {{- /*
-App ingress (Traefik): /api -> backend, / -> frontend.
-Plus the cert-manager Certificate covering both app + auth hosts; the
-referenced secret is consumed by this ingress and the keycloak ingress.
+Single host (Cloudflare's *.siemen.cloud edge cert only covers one label deep):
+  /api  -> backend
+  /auth -> keycloak
+  /     -> frontend
+Plus the cert-manager Certificate for the app host (origin cert behind Cloudflare).
 */ -}}
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -15,7 +17,6 @@ spec:
     kind: ClusterIssuer
   dnsNames:
     - {{ .Values.hosts.app | quote }}
-    - {{ .Values.hosts.auth | quote }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -37,6 +38,13 @@ spec:
             backend:
               service:
                 name: backend
+                port:
+                  name: http
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak
                 port:
                   name: http
           - path: /

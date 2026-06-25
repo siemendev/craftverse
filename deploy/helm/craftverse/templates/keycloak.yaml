@@ -68,7 +68,9 @@ spec:
                   name: craftverse-db
                   key: keycloak-password
             - name: KC_HOSTNAME
-              value: {{ printf "https://%s" .Values.hosts.auth | quote }}
+              value: {{ printf "https://%s/auth" .Values.hosts.app | quote }}
+            - name: KC_HTTP_RELATIVE_PATH
+              value: /auth
             - name: KC_HOSTNAME_STRICT
               value: "false"
             - name: KC_HTTP_ENABLED
@@ -86,13 +88,13 @@ spec:
               readOnly: true
           startupProbe:
             httpGet:
-              path: /health/ready
+              path: /auth/health/ready
               port: 9000
             periodSeconds: 5
             failureThreshold: 60
           readinessProbe:
             httpGet:
-              path: /health/ready
+              path: /auth/health/ready
               port: 9000
             periodSeconds: 10
             failureThreshold: 3
@@ -117,26 +119,4 @@ spec:
       targetPort: http
   selector:
     app: keycloak
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: keycloak
-  namespace: {{ .Release.Namespace }}
-spec:
-  ingressClassName: traefik
-  tls:
-    - secretName: {{ .Values.tls.secretName }}
-      hosts:
-        - {{ .Values.hosts.auth | quote }}
-  rules:
-    - host: {{ .Values.hosts.auth | quote }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: keycloak
-                port:
-                  name: http
+{{- /* Keycloak is routed via /auth on the app ingress (see ingress.yaml). */ -}}

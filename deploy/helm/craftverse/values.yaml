@@ -13,12 +13,13 @@ frontendImageTag: latest
 imagePullSecrets:
   - name: craftverse-registry-credentials
 
-# Public hostnames (TLS via cert-manager).
+# Single public host. Keycloak is served under /auth on this host (a deeper
+# subdomain like auth.craftverse.siemen.cloud is NOT covered by Cloudflare's
+# *.siemen.cloud edge cert, so it must stay one label deep).
 hosts:
   app: craftverse.siemen.cloud
-  auth: auth.craftverse.siemen.cloud
 
-# cert-manager ClusterIssuer producing the TLS cert for both hosts.
+# cert-manager ClusterIssuer producing the origin TLS cert (behind Cloudflare).
 tls:
   clusterIssuer: cloudflare-issuer
   secretName: craftverse-tls

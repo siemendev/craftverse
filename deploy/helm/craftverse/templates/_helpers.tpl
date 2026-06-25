@@ -43,8 +43,10 @@ Args: dict "ctx" $ "explicit" <string> "secret" <secretName> "secretKey" <string
 {{- end -}}
 
 {{/*
-OIDC issuer URL for the craftverse realm, derived from the auth host.
+OIDC issuer URL for the craftverse realm. Keycloak is served under /auth on the
+app host: a single host keeps it inside Cloudflare's *.siemen.cloud edge cert
+(a deeper subdomain like auth.craftverse.siemen.cloud is NOT covered).
 */}}
 {{- define "craftverse.oidcIssuer" -}}
-https://{{ .Values.hosts.auth }}/realms/craftverse
+https://{{ .Values.hosts.app }}/auth/realms/craftverse
 {{- end -}}
