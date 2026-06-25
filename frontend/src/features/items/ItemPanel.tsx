@@ -12,9 +12,19 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiError } from "@/api/client";
 import { useAppAuth } from "@/auth/auth";
-import type { Item, ItemDetail, Recipe, TreeNode } from "@/api/types";
+import type {
+  Currency,
+  Item,
+  ItemDetail,
+  Location,
+  PriceKind,
+  Recipe,
+  TreeNode,
+} from "@/api/types";
 import { TokenInput } from "./TokenInput";
 import { ItemAutocomplete } from "./ItemAutocomplete";
+import { LocationSelect } from "./LocationSelect";
+import { LocationPicker } from "./LocationPicker";
 import { CraftingTree } from "./CraftingTree";
 import { ForceDeleteDialog } from "./ForceDeleteDialog";
 
@@ -332,6 +342,18 @@ export function ItemPanel({
                       void load();
                     }}
                   />
+
+                  <hr className="border-border" />
+
+                  <PricesSection
+                    detail={detail}
+                    atlasId={atlasId}
+                    canEdit={canEdit}
+                    onChanged={() => {
+                      onChanged();
+                      void load();
+                    }}
+                  />
                 </>
               )}
             </div>
@@ -426,15 +448,14 @@ function RecipesSection({
   const { toast } = useToast();
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
 
   const loadLocations = useCallback(async () => {
     if (!canEdit) return;
     try {
-      const locs = await api.listLocations(atlasId);
-      setLocationSuggestions(locs.map((l) => l.name));
+      setLocations(await api.listLocations(atlasId));
     } catch {
-      // Suggestions are a nicety; ignore fetch errors.
+      // The picker still works for already-attached locations; ignore.
     }
   }, [atlasId, canEdit]);
 
@@ -442,29 +463,44 @@ function RecipesSection({
     void loadLocations();
   }, [loadLocations]);
 
-  async function createRecipe(ingredients: IngredientDraft[], locations: string[]) {
+  async function createLocation(name: string): Promise<Location | null> {
+    try {
+      const loc = await api.createLocation(atlasId, name);
+      setLocations((arr) =>
+        arr.some((l) => l.id === loc.id) ? arr : [...arr, loc],
+      );
+      return loc;
+    } catch (e) {
+      toast({
+        title: "Failed to create location",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+      return null;
+    }
+  }
+
+  async function createRecipe(ingredients: IngredientDraft[], locs: Location[]) {
     await api.createRecipe(detail.id, {
       ingredients: ingredients.map((i) => ({ itemId: i.itemId, quantity: i.quantity })),
-      locationNames: locations.length ? locations : undefined,
+      locationIds: locs.map((l) => l.id),
     });
     toast({ title: "Recipe added" });
     setAdding(false);
-    void loadLocations();
     onChanged();
   }
 
   async function updateRecipe(
     id: string,
     ingredients: IngredientDraft[],
-    locations: string[],
+    locs: Location[],
   ) {
     await api.updateRecipe(id, {
       ingredients: ingredients.map((i) => ({ itemId: i.itemId, quantity: i.quantity })),
-      locationNames: locations,
+      locationIds: locs.map((l) => l.id),
     });
     toast({ title: "Recipe updated" });
     setEditingId(null);
-    void loadLocations();
     onChanged();
   }
 
@@ -507,13 +543,14 @@ function RecipesSection({
             outputItemId={detail.id}
             atlasId={atlasId}
             items={items}
-            locationSuggestions={locationSuggestions}
+            locations={locations}
+            onCreateLocation={createLocation}
             initialIngredients={r.ingredients.map((ing) => ({
               itemId: ing.itemId,
               itemName: ing.itemName,
               quantity: ing.quantity,
             }))}
-            initialLocations={r.locations.map((l) => l.name)}
+            initialLocations={r.locations}
             submitLabel="Save recipe"
             onSubmit={(ings, locs) => updateRecipe(r.id, ings, locs)}
             onCancel={() => setEditingId(null)}
@@ -539,7 +576,8 @@ function RecipesSection({
           outputItemId={detail.id}
           atlasId={atlasId}
           items={items}
-          locationSuggestions={locationSuggestions}
+          locations={locations}
+          onCreateLocation={createLocation}
           initialIngredients={[]}
           initialLocations={[]}
           submitLabel="Create recipe"
@@ -558,7 +596,8 @@ function RecipeForm({
   outputItemId,
   atlasId,
   items,
-  locationSuggestions,
+  locations,
+  onCreateLocation,
   initialIngredients,
   initialLocations,
   submitLabel,
@@ -570,18 +609,19 @@ function RecipeForm({
   outputItemId: string;
   atlasId: string;
   items: Item[];
-  locationSuggestions: string[];
+  locations: Location[];
+  onCreateLocation: (name: string) => Promise<Location | null>;
   initialIngredients: IngredientDraft[];
-  initialLocations: string[];
+  initialLocations: Location[];
   submitLabel: string;
-  onSubmit: (ingredients: IngredientDraft[], locations: string[]) => Promise<void>;
+  onSubmit: (ingredients: IngredientDraft[], locations: Location[]) => Promise<void>;
   onCancel: () => void;
   onItemCreated: () => void;
 }) {
   const { toast } = useToast();
   const [draftIngredients, setDraftIngredients] =
     useState<IngredientDraft[]>(initialIngredients);
-  const [draftLocations, setDraftLocations] = useState<string[]>(initialLocations);
+  const [draftLocations, setDraftLocations] = useState<Location[]>(initialLocations);
   const [busy, setBusy] = useState(false);
 
   async function submit() {
@@ -670,11 +710,11 @@ function RecipeForm({
         <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Locations
         </span>
-        <TokenInput
-          values={draftLocations}
+        <LocationSelect
+          locations={locations}
+          selected={draftLocations}
           onChange={setDraftLocations}
-          suggestions={locationSuggestions}
-          placeholder="Add location…"
+          onCreate={onCreateLocation}
         />
       </div>
 
@@ -734,6 +774,274 @@ function ExistingRecipe({
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+// ---- Prices editor -------------------------------------------------------
+
+interface PriceDraft {
+  key: string;
+  kind: PriceKind;
+  location: Location | null;
+  currencyId: string;
+  amount: number;
+}
+
+let priceKeySeq = 0;
+function newPriceKey() {
+  priceKeySeq += 1;
+  return `new-${priceKeySeq}`;
+}
+
+/**
+ * Buy (EK) / sell (VK) prices for an item. Each price is an entry of
+ * {location, currency, amount}; the buy/sell toggle switches which list is
+ * shown, and both lists are persisted together via a single replace call.
+ * Locations and currencies are atlas-scoped relation entities.
+ */
+function PricesSection({
+  detail,
+  atlasId,
+  canEdit,
+  onChanged,
+}: {
+  detail: ItemDetail;
+  atlasId: string;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  const { toast } = useToast();
+  const [currencies, setCurrencies] = useState<Currency[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [kind, setKind] = useState<PriceKind>("buy");
+  const [drafts, setDrafts] = useState<PriceDraft[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const defaultCurrencyId = useMemo(
+    () => currencies.find((c) => c.isDefault)?.id ?? currencies[0]?.id ?? "",
+    [currencies],
+  );
+
+  // Rebuild drafts from the loaded prices whenever the item (re)loads.
+  useEffect(() => {
+    setDrafts(
+      detail.prices.map((p) => ({
+        key: p.id,
+        kind: p.kind,
+        location: { id: p.locationId, atlasId, name: p.locationName },
+        currencyId: p.currencyId,
+        amount: p.amount,
+      })),
+    );
+  }, [detail.id, detail.prices, atlasId]);
+
+  const load = useCallback(async () => {
+    try {
+      const [cs, ls] = await Promise.all([
+        api.listCurrencies(atlasId),
+        api.listLocations(atlasId),
+      ]);
+      setCurrencies(cs);
+      setLocations(ls);
+    } catch {
+      // Non-fatal: editing still works for already-attached values.
+    }
+  }, [atlasId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function createLocation(name: string): Promise<Location | null> {
+    try {
+      const loc = await api.createLocation(atlasId, name);
+      setLocations((arr) =>
+        arr.some((l) => l.id === loc.id) ? arr : [...arr, loc],
+      );
+      return loc;
+    } catch (e) {
+      toast({
+        title: "Failed to create location",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+      return null;
+    }
+  }
+
+  const rows = drafts.filter((d) => d.kind === kind);
+
+  function addRow() {
+    setDrafts((arr) => [
+      ...arr,
+      {
+        key: newPriceKey(),
+        kind,
+        location: null,
+        currencyId: defaultCurrencyId,
+        amount: 0,
+      },
+    ]);
+  }
+
+  function updateRow(key: string, patch: Partial<PriceDraft>) {
+    setDrafts((arr) => arr.map((d) => (d.key === key ? { ...d, ...patch } : d)));
+  }
+
+  function removeRow(key: string) {
+    setDrafts((arr) => arr.filter((d) => d.key !== key));
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const prices = drafts
+        .filter((d) => d.location && d.currencyId)
+        .map((d) => ({
+          kind: d.kind,
+          locationId: d.location!.id,
+          currencyId: d.currencyId,
+          amount: Math.max(0, Math.round(d.amount) || 0),
+        }));
+      await api.setItemPrices(detail.id, { prices });
+      toast({ title: "Prices saved" });
+      onChanged();
+    } catch (e) {
+      toast({
+        title: "Failed to save prices",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!canEdit) {
+    if (detail.prices.length === 0) return null;
+    const renderList = (k: PriceKind, label: string) => {
+      const list = detail.prices.filter((p) => p.kind === k);
+      if (list.length === 0) return null;
+      return (
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {label}
+          </div>
+          <ul className="space-y-0.5 text-sm">
+            {list.map((p) => (
+              <li key={p.id} className="flex justify-between gap-2">
+                <span className="truncate text-muted-foreground">
+                  {p.locationName}
+                </span>
+                <span>
+                  {p.amount} {p.currencyName}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
+    };
+    return (
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold">Prices</h3>
+        {renderList("buy", "Buy")}
+        {renderList("sell", "Sell")}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Prices</h3>
+        <div className="flex overflow-hidden rounded-md border border-border text-xs">
+          {(["buy", "sell"] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setKind(k)}
+              className={
+                "px-2.5 py-1 capitalize transition-colors " +
+                (kind === k
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground")
+              }
+            >
+              {k}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {currencies.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Add a currency to this atlas first (atlas menu → Currencies) to enter
+          prices.
+        </p>
+      ) : (
+        <>
+          {rows.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No {kind} prices yet.
+            </p>
+          )}
+
+          <div className="space-y-1.5">
+            {rows.map((d) => (
+              <div key={d.key} className="flex items-center gap-2">
+                <LocationPicker
+                  locations={locations}
+                  value={d.location}
+                  onChange={(loc) => updateRow(d.key, { location: loc })}
+                  onCreate={createLocation}
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  value={d.amount}
+                  onChange={(e) =>
+                    updateRow(d.key, {
+                      amount: Math.max(0, Number(e.target.value) || 0),
+                    })
+                  }
+                  className="h-8 w-20 shrink-0"
+                />
+                <select
+                  value={d.currencyId}
+                  onChange={(e) => updateRow(d.key, { currencyId: e.target.value })}
+                  className="h-8 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {currencies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => removeRow(d.key)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={addRow}>
+              <Plus className="h-4 w-4" /> Add {kind} price
+            </Button>
+            <Button size="sm" onClick={() => void save()} disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save prices
+            </Button>
+          </div>
+        </>
       )}
     </div>
   );

@@ -36,6 +36,23 @@ type locationDTO struct {
 	Name    string `json:"name"`
 }
 
+type currencyDTO struct {
+	ID        string `json:"id"`
+	AtlasID   string `json:"atlasId"`
+	Name      string `json:"name"`
+	IsDefault bool   `json:"isDefault"`
+}
+
+type priceDTO struct {
+	ID           string `json:"id"`
+	Kind         string `json:"kind"` // "buy" or "sell"
+	LocationID   string `json:"locationId"`
+	LocationName string `json:"locationName"`
+	CurrencyID   string `json:"currencyId"`
+	CurrencyName string `json:"currencyName"`
+	Amount       uint64 `json:"amount"`
+}
+
 type itemDTO struct {
 	ID        string   `json:"id"`
 	AtlasID   string   `json:"atlasId"`
@@ -79,6 +96,7 @@ type recipeSummaryDTO struct {
 type itemDetailDTO struct {
 	itemDTO
 	Recipes []recipeDTO `json:"recipes"`
+	Prices  []priceDTO  `json:"prices"`
 }
 
 type edgeDTO struct {
@@ -145,6 +163,38 @@ func toLocationDTOs(ls []db.Location) []locationDTO {
 	out := make([]locationDTO, 0, len(ls))
 	for _, l := range ls {
 		out = append(out, toLocationDTO(l))
+	}
+	return out
+}
+
+func toCurrencyDTO(c db.Currency) currencyDTO {
+	return currencyDTO{ID: idStr(c.ID), AtlasID: idStr(c.AtlasID), Name: c.Name, IsDefault: c.IsDefault}
+}
+
+func toCurrencyDTOs(cs []db.Currency) []currencyDTO {
+	out := make([]currencyDTO, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, toCurrencyDTO(c))
+	}
+	return out
+}
+
+func toPriceDTO(p db.Price) priceDTO {
+	return priceDTO{
+		ID:           idStr(p.ID),
+		Kind:         p.Kind,
+		LocationID:   idStr(p.LocationID),
+		LocationName: p.LocationName,
+		CurrencyID:   idStr(p.CurrencyID),
+		CurrencyName: p.CurrencyName,
+		Amount:       p.Amount,
+	}
+}
+
+func toPriceDTOs(ps []db.Price) []priceDTO {
+	out := make([]priceDTO, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, toPriceDTO(p))
 	}
 	return out
 }

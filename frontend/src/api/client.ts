@@ -4,16 +4,20 @@ import type {
   ApiErrorBody,
   Atlas,
   CreateAtlasBody,
+  CreateCurrencyBody,
   CreateItemBody,
   CreateRecipeBody,
+  Currency,
   Graph,
   Item,
   ItemDetail,
   Location,
   Recipe,
+  SetItemPricesBody,
   Tag,
   TreeNode,
   UpdateAtlasBody,
+  UpdateCurrencyBody,
   UpdateItemBody,
   UpdateRecipeBody,
 } from "./types";
@@ -117,6 +121,8 @@ export const api = {
     request<TreeNode>(`/items/${id}/tree`, {
       query: maxDepth !== undefined ? { maxDepth } : undefined,
     }),
+  setItemPrices: (id: string, body: SetItemPricesBody) =>
+    request<ItemDetail>(`/items/${id}/prices`, { method: "PATCH", body }),
 
   // Recipes
   createRecipe: (itemId: string, body: CreateRecipeBody) =>
@@ -142,4 +148,17 @@ export const api = {
       method: "POST",
       body: { name, color },
     }),
+
+  // Currencies (atlas-scoped; one default per atlas)
+  listCurrencies: (atlasId: string) =>
+    request<Currency[]>(`/atlases/${atlasId}/currencies`),
+  createCurrency: (atlasId: string, body: CreateCurrencyBody) =>
+    request<Currency>(`/atlases/${atlasId}/currencies`, {
+      method: "POST",
+      body,
+    }),
+  updateCurrency: (id: string, body: UpdateCurrencyBody) =>
+    request<Currency>(`/currencies/${id}`, { method: "PATCH", body }),
+  deleteCurrency: (id: string) =>
+    request<void>(`/currencies/${id}`, { method: "DELETE" }),
 };

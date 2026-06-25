@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   Check,
   ChevronsUpDown,
+  Coins,
   Pencil,
   Plus,
   Trash2,
@@ -33,6 +34,7 @@ import { useToast } from "@/components/ui/toast";
 import { api, ApiError } from "@/api/client";
 import { useAppAuth } from "@/auth/auth";
 import { useAtlas } from "./AtlasContext";
+import { CurrenciesDialog } from "./CurrenciesDialog";
 
 export function AtlasSwitcher() {
   const { atlases, selectedAtlas, selectAtlas, refresh } = useAtlas();
@@ -43,6 +45,7 @@ export function AtlasSwitcher() {
   const [createOpen, setCreateOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [currenciesOpen, setCurrenciesOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -171,6 +174,17 @@ export function AtlasSwitcher() {
                   <Pencil className="mr-2 h-4 w-4" /> Rename current
                 </CommandItem>
                 <CommandItem
+                  value="__currencies__"
+                  disabled={!selectedAtlas}
+                  onSelect={() => {
+                    if (!selectedAtlas) return;
+                    setCurrenciesOpen(true);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Coins className="mr-2 h-4 w-4" /> Currencies
+                </CommandItem>
+                <CommandItem
                   value="__delete__"
                   disabled={!selectedAtlas}
                   onSelect={() => {
@@ -243,7 +257,7 @@ export function AtlasSwitcher() {
             <DialogTitle>Delete &ldquo;{selectedAtlas?.name}&rdquo;?</DialogTitle>
             <DialogDescription>
               This permanently deletes the atlas and all its items, recipes,
-              locations, and tags.
+              locations, tags, currencies, and prices.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -256,6 +270,16 @@ export function AtlasSwitcher() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Currencies */}
+      {selectedAtlas && (
+        <CurrenciesDialog
+          atlasId={selectedAtlas.id}
+          atlasName={selectedAtlas.name}
+          open={currenciesOpen}
+          onOpenChange={setCurrenciesOpen}
+        />
+      )}
     </>
   );
 }

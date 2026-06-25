@@ -21,6 +21,25 @@ export interface Location {
   name: string;
 }
 
+export interface Currency {
+  id: string;
+  atlasId: string;
+  name: string;
+  isDefault: boolean;
+}
+
+export type PriceKind = "buy" | "sell";
+
+export interface Price {
+  id: string;
+  kind: PriceKind;
+  locationId: string;
+  locationName: string;
+  currencyId: string;
+  currencyName: string;
+  amount: number;
+}
+
 export interface ItemSummary {
   id: string;
   name: string;
@@ -63,6 +82,7 @@ export interface Recipe {
 
 export interface ItemDetail extends Item {
   recipes: Recipe[];
+  prices: Price[];
 }
 
 export interface GraphEdge {
@@ -142,6 +162,25 @@ export interface AddIngredientEdgeBody {
   outputItemId: string;
   ingredientItemId: string;
   quantity?: number;
+}
+
+export interface CreateCurrencyBody {
+  name: string;
+  isDefault?: boolean;
+}
+export interface UpdateCurrencyBody {
+  name?: string;
+  isDefault?: boolean;
+}
+
+export interface PriceInput {
+  kind: PriceKind;
+  locationId: string;
+  currencyId: string;
+  amount: number;
+}
+export interface SetItemPricesBody {
+  prices: PriceInput[];
 }
 
 // ---- error shape ---------------------------------------------------------

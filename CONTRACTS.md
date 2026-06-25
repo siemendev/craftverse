@@ -110,12 +110,17 @@ All paths prefixed `/api`. IDs are strings. `409 Conflict` carries a usage list 
 - `GET /api/atlases/{id}/items` → `[Item]`
 - `POST /api/atlases/{id}/items` body `{name, notes?, tagIds?:[], tagNames?:[]}` → `201 Item`
   (tagNames create tags on the fly within the atlas)
-- `GET /api/items/{id}` → `ItemDetail` (item + its recipes with ingredients & locations)
+- `GET /api/items/{id}` → `ItemDetail` (item + its recipes with ingredients & locations + its buy/sell prices)
 - `PATCH /api/items/{id}` body `{name?, notes?, tagIds?, tagNames?}` → `Item`
 - `DELETE /api/items/{id}` → `204`; if used as an ingredient elsewhere → `409` with
   `{ "error": { "code": "item_in_use", "details": { "usedIn": [ {recipeId, outputItemId, outputItemName} ] } } }`
 - `DELETE /api/items/{id}?force=true` → `204`, removes the referencing `recipe_ingredient` rows first, then the item.
 - `GET /api/items/{id}/tree?maxDepth=` → `TreeNode` — recursive crafting tree (see below)
+- `PATCH /api/items/{id}/prices` body `{prices:[{kind:"buy"|"sell", locationId, currencyId, amount}]}` → `ItemDetail`
+  - Replaces the **full** set of prices for the item (both buy and sell). `kind` is `buy` (Einkauf/EK) or
+    `sell` (Verkauf/VK). `locationId` and `currencyId` are atlas-scoped relations; `amount` is a non-negative
+    integer. `locationName` is also accepted in place of `locationId` (created on the fly). Rows with an
+    invalid kind, or missing location/currency, are skipped.
 
 ### Recipes
 - `POST /api/items/{id}/recipes` body `{isPrimary?, ingredients:[{itemId, quantity}], locationIds?:[], locationNames?:[]}` → `201 Recipe`
@@ -131,17 +136,27 @@ All paths prefixed `/api`. IDs are strings. `409 Conflict` carries a usage list 
 - `GET /api/atlases/{id}/tags` → `[Tag]`
 - `POST /api/atlases/{id}/tags` body `{name, color?}` → `201 Tag`
 
+### Currencies (atlas-scoped; exactly one default per atlas)
+- `GET /api/atlases/{id}/currencies` → `[Currency]` (default first, then by name)
+- `POST /api/atlases/{id}/currencies` body `{name, isDefault?}` → `201 Currency`
+  - The first currency in an atlas always becomes the default. Setting `isDefault:true` clears any prior default.
+- `PATCH /api/currencies/{id}` body `{name?, isDefault?}` → `Currency` (setting `isDefault:true` clears the others)
+- `DELETE /api/currencies/{id}` → `204` (cascades to prices using it; if the default is removed, the
+  lowest-id remaining currency is promoted so an atlas with currencies always has a default)
+
 ### DTOs
 ```jsonc
 Atlas        { id, name, description?, createdAt, updatedAt }
 Tag          { id, atlasId, name, color? }
 Location     { id, atlasId, name }
+Currency     { id, atlasId, name, isDefault:bool }
+Price        { id, kind:"buy"|"sell", locationId, locationName, currencyId, currencyName, amount:int }
 ItemSummary  { id, name, tags:[Tag], isRaw:bool, locationIds:[string] }
 Item         { id, atlasId, name, notes?, tags:[Tag], createdAt, updatedAt }
 RecipeSummary{ id, outputItemId, isPrimary, locationIds:[string] }
 Recipe       { id, outputItemId, isPrimary, ingredients:[{ id, itemId, itemName, quantity }],
                locations:[Location] }
-ItemDetail   { ...Item, recipes:[Recipe] }
+ItemDetail   { ...Item, recipes:[Recipe], prices:[Price] }
 TreeNode     { itemId, itemName, quantity,            // quantity = per this edge (root quantity = 1)
                isRaw:bool,
                recipes:[ {                            // OR-branches; empty for raw items

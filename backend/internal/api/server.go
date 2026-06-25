@@ -63,6 +63,7 @@ func (s *Server) Router(corsOrigins []string) http.Handler {
 			r.Get("/atlases/{id}/items", s.handleListItems)
 			r.Get("/atlases/{id}/locations", s.handleListLocations)
 			r.Get("/atlases/{id}/tags", s.handleListTags)
+			r.Get("/atlases/{id}/currencies", s.handleListCurrencies)
 
 			// Items
 			r.Get("/items/{id}", s.handleGetItem)
@@ -82,9 +83,15 @@ func (s *Server) Router(corsOrigins []string) http.Handler {
 			r.Post("/atlases/{id}/items", s.handleCreateItem)
 			r.Post("/atlases/{id}/locations", s.handleCreateLocation)
 			r.Post("/atlases/{id}/tags", s.handleCreateTag)
+			r.Post("/atlases/{id}/currencies", s.handleCreateCurrency)
+
+			// Currencies
+			r.Patch("/currencies/{id}", s.handleUpdateCurrency)
+			r.Delete("/currencies/{id}", s.handleDeleteCurrency)
 
 			// Items
 			r.Patch("/items/{id}", s.handleUpdateItem)
+			r.Patch("/items/{id}/prices", s.handleUpdateItemPrices)
 			r.Delete("/items/{id}", s.handleDeleteItem)
 			r.Post("/items/{id}/recipes", s.handleCreateRecipe)
 

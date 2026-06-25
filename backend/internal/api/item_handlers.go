@@ -101,7 +101,54 @@ func (s *Server) buildItemDetail(r *http.Request, id uint64) (itemDetailDTO, err
 		}
 		detail.Recipes = append(detail.Recipes, toRecipeDTO(rec, ings, locs))
 	}
+	prices, err := s.store.PricesForItem(ctx, id)
+	if err != nil {
+		return itemDetailDTO{}, err
+	}
+	detail.Prices = toPriceDTOs(prices)
 	return detail, nil
+}
+
+// handleUpdateItemPrices replaces the full set of buy/sell prices for an item.
+func (s *Server) handleUpdateItemPrices(w http.ResponseWriter, r *http.Request) {
+	id, ok := urlID(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid id", nil)
+		return
+	}
+	var body struct {
+		Prices []struct {
+			Kind         string `json:"kind"`
+			LocationID   string `json:"locationId"`
+			LocationName string `json:"locationName"`
+			CurrencyID   string `json:"currencyId"`
+			Amount       uint64 `json:"amount"`
+		} `json:"prices"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	inputs := make([]db.PriceInput, 0, len(body.Prices))
+	for _, p := range body.Prices {
+		in := db.PriceInput{Kind: p.Kind, LocationName: p.LocationName, Amount: p.Amount}
+		if ids := parseIDList([]string{p.LocationID}); len(ids) == 1 {
+			in.LocationID = ids[0]
+		}
+		if ids := parseIDList([]string{p.CurrencyID}); len(ids) == 1 {
+			in.CurrencyID = ids[0]
+		}
+		inputs = append(inputs, in)
+	}
+	if err := s.store.ReplaceItemPrices(r.Context(), id, inputs); err != nil {
+		writeDBError(w, err)
+		return
+	}
+	detail, err := s.buildItemDetail(r, id)
+	if err != nil {
+		writeDBError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func (s *Server) handleUpdateItem(w http.ResponseWriter, r *http.Request) {

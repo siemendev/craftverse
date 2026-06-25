@@ -26,6 +26,27 @@ type Location struct {
 	Name    string
 }
 
+// Currency is an atlas-scoped unit of account (e.g. "Gold", "Pay2Win Coins").
+// Exactly one currency per atlas is the default.
+type Currency struct {
+	ID        uint64
+	AtlasID   uint64
+	Name      string
+	IsDefault bool
+}
+
+// Price is one buy/sell price of an item at a location in a currency.
+type Price struct {
+	ID           uint64
+	ItemID       uint64
+	LocationID   uint64
+	LocationName string
+	CurrencyID   uint64
+	CurrencyName string
+	Kind         string // "buy" or "sell"
+	Amount       uint64
+}
+
 // Item is a craftable or raw material.
 type Item struct {
 	ID        uint64
