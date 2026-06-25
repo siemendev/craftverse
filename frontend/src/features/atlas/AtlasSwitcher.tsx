@@ -113,7 +113,7 @@ export function AtlasSwitcher() {
         <DropdownMenuTrigger asChild>
           <Button
             variant="outline"
-            className="h-9 min-w-[180px] justify-between border-border/60 bg-card/60"
+            className="h-9 w-full justify-between border-border/60 bg-card/60 sm:w-auto sm:min-w-[180px]"
           >
             <span className="truncate">
               {selectedAtlas?.name ?? "Select atlas"}
