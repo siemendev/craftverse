@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Loader2, GitBranch } from "lucide-react";
+import { Plus, Trash2, Loader2, GitBranch, Pencil } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -425,38 +425,47 @@ function RecipesSection({
 }) {
   const { toast } = useToast();
   const [adding, setAdding] = useState(false);
-  const [draftIngredients, setDraftIngredients] = useState<IngredientDraft[]>([]);
-  const [draftLocations, setDraftLocations] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
 
-  function reset() {
-    setDraftIngredients([]);
-    setDraftLocations([]);
+  const loadLocations = useCallback(async () => {
+    if (!canEdit) return;
+    try {
+      const locs = await api.listLocations(atlasId);
+      setLocationSuggestions(locs.map((l) => l.name));
+    } catch {
+      // Suggestions are a nicety; ignore fetch errors.
+    }
+  }, [atlasId, canEdit]);
+
+  useEffect(() => {
+    void loadLocations();
+  }, [loadLocations]);
+
+  async function createRecipe(ingredients: IngredientDraft[], locations: string[]) {
+    await api.createRecipe(detail.id, {
+      ingredients: ingredients.map((i) => ({ itemId: i.itemId, quantity: i.quantity })),
+      locationNames: locations.length ? locations : undefined,
+    });
+    toast({ title: "Recipe added" });
     setAdding(false);
+    void loadLocations();
+    onChanged();
   }
 
-  async function createRecipe() {
-    setBusy(true);
-    try {
-      await api.createRecipe(detail.id, {
-        ingredients: draftIngredients.map((i) => ({
-          itemId: i.itemId,
-          quantity: i.quantity,
-        })),
-        locationNames: draftLocations.length ? draftLocations : undefined,
-      });
-      toast({ title: "Recipe added" });
-      reset();
-      onChanged();
-    } catch (e) {
-      toast({
-        title: "Failed to add recipe",
-        description: e instanceof Error ? e.message : String(e),
-        variant: "destructive",
-      });
-    } finally {
-      setBusy(false);
-    }
+  async function updateRecipe(
+    id: string,
+    ingredients: IngredientDraft[],
+    locations: string[],
+  ) {
+    await api.updateRecipe(id, {
+      ingredients: ingredients.map((i) => ({ itemId: i.itemId, quantity: i.quantity })),
+      locationNames: locations,
+    });
+    toast({ title: "Recipe updated" });
+    setEditingId(null);
+    void loadLocations();
+    onChanged();
   }
 
   async function deleteRecipe(id: string) {
@@ -490,107 +499,194 @@ function RecipesSection({
         </p>
       )}
 
-      {detail.recipes.map((r) => (
-        <ExistingRecipe
-          key={r.id}
-          recipe={r}
-          canEdit={canEdit}
-          onDelete={() => void deleteRecipe(r.id)}
-        />
-      ))}
+      {detail.recipes.map((r) =>
+        editingId === r.id ? (
+          <RecipeForm
+            key={r.id}
+            title="Edit recipe"
+            outputItemId={detail.id}
+            atlasId={atlasId}
+            items={items}
+            locationSuggestions={locationSuggestions}
+            initialIngredients={r.ingredients.map((ing) => ({
+              itemId: ing.itemId,
+              itemName: ing.itemName,
+              quantity: ing.quantity,
+            }))}
+            initialLocations={r.locations.map((l) => l.name)}
+            submitLabel="Save recipe"
+            onSubmit={(ings, locs) => updateRecipe(r.id, ings, locs)}
+            onCancel={() => setEditingId(null)}
+            onItemCreated={onChanged}
+          />
+        ) : (
+          <ExistingRecipe
+            key={r.id}
+            recipe={r}
+            canEdit={canEdit}
+            onEdit={() => {
+              setAdding(false);
+              setEditingId(r.id);
+            }}
+            onDelete={() => void deleteRecipe(r.id)}
+          />
+        ),
+      )}
 
       {adding && (
-        <div className="space-y-3 rounded-md border border-border bg-card/50 p-3">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            New recipe
-          </div>
-
-          <div className="space-y-1.5">
-            {draftIngredients.map((ing, idx) => (
-              <div key={ing.itemId} className="flex items-center gap-2">
-                <span className="flex-1 truncate text-sm">{ing.itemName}</span>
-                <Input
-                  type="number"
-                  min={1}
-                  value={ing.quantity}
-                  onChange={(e) =>
-                    setDraftIngredients((arr) =>
-                      arr.map((x, i) =>
-                        i === idx
-                          ? { ...x, quantity: Math.max(1, Number(e.target.value) || 1) }
-                          : x,
-                      ),
-                    )
-                  }
-                  className="h-7 w-16"
-                />
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-7 w-7"
-                  onClick={() =>
-                    setDraftIngredients((arr) => arr.filter((_, i) => i !== idx))
-                  }
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
-
-          <ItemAutocomplete
-            items={items}
-            excludeIds={[
-              detail.id,
-              ...draftIngredients.map((i) => i.itemId),
-            ]}
-            placeholder="Add ingredient…"
-            onSelect={(it) =>
-              setDraftIngredients((arr) => [
-                ...arr,
-                { itemId: it.id, itemName: it.name, quantity: 1 },
-              ])
-            }
-            onCreate={async (createName) => {
-              try {
-                const created = await api.createItem(atlasId, { name: createName });
-                setDraftIngredients((arr) => [
-                  ...arr,
-                  { itemId: created.id, itemName: created.name, quantity: 1 },
-                ]);
-                onChanged();
-              } catch (e) {
-                toast({
-                  title: "Failed to create item",
-                  description: e instanceof Error ? e.message : String(e),
-                  variant: "destructive",
-                });
-              }
-            }}
-          />
-
-          <div>
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Locations (on-the-fly)
-            </span>
-            <TokenInput
-              values={draftLocations}
-              onChange={setDraftLocations}
-              placeholder="Add location…"
-            />
-          </div>
-
-          <div className="flex gap-2">
-            <Button size="sm" onClick={createRecipe} disabled={busy}>
-              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-              Create recipe
-            </Button>
-            <Button size="sm" variant="ghost" onClick={reset}>
-              Cancel
-            </Button>
-          </div>
-        </div>
+        <RecipeForm
+          title="New recipe"
+          outputItemId={detail.id}
+          atlasId={atlasId}
+          items={items}
+          locationSuggestions={locationSuggestions}
+          initialIngredients={[]}
+          initialLocations={[]}
+          submitLabel="Create recipe"
+          onSubmit={createRecipe}
+          onCancel={() => setAdding(false)}
+          onItemCreated={onChanged}
+        />
       )}
+    </div>
+  );
+}
+
+/** Shared editor for creating and editing a recipe's ingredients + locations. */
+function RecipeForm({
+  title,
+  outputItemId,
+  atlasId,
+  items,
+  locationSuggestions,
+  initialIngredients,
+  initialLocations,
+  submitLabel,
+  onSubmit,
+  onCancel,
+  onItemCreated,
+}: {
+  title: string;
+  outputItemId: string;
+  atlasId: string;
+  items: Item[];
+  locationSuggestions: string[];
+  initialIngredients: IngredientDraft[];
+  initialLocations: string[];
+  submitLabel: string;
+  onSubmit: (ingredients: IngredientDraft[], locations: string[]) => Promise<void>;
+  onCancel: () => void;
+  onItemCreated: () => void;
+}) {
+  const { toast } = useToast();
+  const [draftIngredients, setDraftIngredients] =
+    useState<IngredientDraft[]>(initialIngredients);
+  const [draftLocations, setDraftLocations] = useState<string[]>(initialLocations);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    try {
+      await onSubmit(draftIngredients, draftLocations);
+    } catch (e) {
+      toast({
+        title: "Failed to save recipe",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-card/50 p-3">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {title}
+      </div>
+
+      <div className="space-y-1.5">
+        {draftIngredients.map((ing, idx) => (
+          <div key={ing.itemId} className="flex items-center gap-2">
+            <span className="flex-1 truncate text-sm">{ing.itemName}</span>
+            <Input
+              type="number"
+              min={1}
+              value={ing.quantity}
+              onChange={(e) =>
+                setDraftIngredients((arr) =>
+                  arr.map((x, i) =>
+                    i === idx
+                      ? { ...x, quantity: Math.max(1, Number(e.target.value) || 1) }
+                      : x,
+                  ),
+                )
+              }
+              className="h-7 w-16"
+            />
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={() =>
+                setDraftIngredients((arr) => arr.filter((_, i) => i !== idx))
+              }
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <ItemAutocomplete
+        items={items}
+        excludeIds={[outputItemId, ...draftIngredients.map((i) => i.itemId)]}
+        placeholder="Add ingredient…"
+        onSelect={(it) =>
+          setDraftIngredients((arr) => [
+            ...arr,
+            { itemId: it.id, itemName: it.name, quantity: 1 },
+          ])
+        }
+        onCreate={async (createName) => {
+          try {
+            const created = await api.createItem(atlasId, { name: createName });
+            setDraftIngredients((arr) => [
+              ...arr,
+              { itemId: created.id, itemName: created.name, quantity: 1 },
+            ]);
+            onItemCreated();
+          } catch (e) {
+            toast({
+              title: "Failed to create item",
+              description: e instanceof Error ? e.message : String(e),
+              variant: "destructive",
+            });
+          }
+        }}
+      />
+
+      <div>
+        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Locations
+        </span>
+        <TokenInput
+          values={draftLocations}
+          onChange={setDraftLocations}
+          suggestions={locationSuggestions}
+          placeholder="Add location…"
+        />
+      </div>
+
+      <div className="flex gap-2">
+        <Button size="sm" onClick={submit} disabled={busy}>
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+          {submitLabel}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }
@@ -598,10 +694,12 @@ function RecipesSection({
 function ExistingRecipe({
   recipe,
   canEdit,
+  onEdit,
   onDelete,
 }: {
   recipe: Recipe;
   canEdit: boolean;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -615,9 +713,14 @@ function ExistingRecipe({
           </span>
         </div>
         {canEdit && (
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onDelete}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          <div className="flex items-center gap-0.5">
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onEdit}>
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onDelete}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         )}
       </div>
       {recipe.ingredients.length === 0 ? (
