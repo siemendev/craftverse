@@ -20,6 +20,9 @@ interface AtlasContextValue {
   selectedAtlas: Atlas | null;
   selectAtlas: (id: string) => void;
   refresh: () => Promise<void>;
+  /** Bumped to ask atlas-scoped views to refetch their data (graph/items/…). */
+  dataVersion: number;
+  bumpData: () => void;
 }
 
 const Ctx = createContext<AtlasContextValue | null>(null);
@@ -31,6 +34,8 @@ export function AtlasProvider({ children }: { children: ReactNode }) {
   const [selectedAtlasId, setSelectedAtlasId] = useState<string | null>(() =>
     typeof localStorage !== "undefined" ? localStorage.getItem(LS_KEY) : null,
   );
+  const [dataVersion, setDataVersion] = useState(0);
+  const bumpData = useCallback(() => setDataVersion((v) => v + 1), []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -74,6 +79,8 @@ export function AtlasProvider({ children }: { children: ReactNode }) {
     selectedAtlas,
     selectAtlas,
     refresh,
+    dataVersion,
+    bumpData,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

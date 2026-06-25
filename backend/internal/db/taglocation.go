@@ -49,7 +49,7 @@ func (s *Store) CreateTag(ctx context.Context, atlasID uint64, name string, colo
 // ListLocations returns all locations for an atlas ordered by name.
 func (s *Store) ListLocations(ctx context.Context, atlasID uint64) ([]Location, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, atlas_id, name FROM location WHERE atlas_id = ? ORDER BY name`, atlasID)
+		`SELECT id, atlas_id, name, description, address FROM location WHERE atlas_id = ? ORDER BY name`, atlasID)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (s *Store) ListLocations(ctx context.Context, atlasID uint64) ([]Location, 
 	var out []Location
 	for rows.Next() {
 		var l Location
-		if err := rows.Scan(&l.ID, &l.AtlasID, &l.Name); err != nil {
+		if err := rows.Scan(&l.ID, &l.AtlasID, &l.Name, &l.Description, &l.Address); err != nil {
 			return nil, err
 		}
 		out = append(out, l)
@@ -69,8 +69,8 @@ func (s *Store) ListLocations(ctx context.Context, atlasID uint64) ([]Location, 
 func (s *Store) GetLocation(ctx context.Context, id uint64) (Location, error) {
 	var l Location
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, atlas_id, name FROM location WHERE id = ?`, id).
-		Scan(&l.ID, &l.AtlasID, &l.Name)
+		`SELECT id, atlas_id, name, description, address FROM location WHERE id = ?`, id).
+		Scan(&l.ID, &l.AtlasID, &l.Name, &l.Description, &l.Address)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Location{}, ErrNotFound
 	}
@@ -80,6 +80,57 @@ func (s *Store) GetLocation(ctx context.Context, id uint64) (Location, error) {
 // CreateLocation inserts a location for an atlas.
 func (s *Store) CreateLocation(ctx context.Context, atlasID uint64, name string) (Location, error) {
 	return createLocationExec(ctx, s.db, atlasID, name)
+}
+
+// UpdateLocation replaces a location's editable fields. name must be non-empty;
+// description and address are set verbatim (nil clears the column).
+func (s *Store) UpdateLocation(ctx context.Context, id uint64, name string, description, address *string) (Location, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE location SET name = ?, description = ?, address = ? WHERE id = ?`,
+		name, description, address, id)
+	if err != nil {
+		return Location{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// RowsAffected is 0 for both "no such row" and "no change"; disambiguate.
+		if _, gerr := s.GetLocation(ctx, id); gerr != nil {
+			return Location{}, gerr
+		}
+	}
+	return s.GetLocation(ctx, id)
+}
+
+// LocationUsage counts the references that block deleting a location.
+type LocationUsage struct {
+	RecipeCount int
+	PriceCount  int
+}
+
+// DeleteLocation removes a location, unless it is still referenced by a recipe
+// or an item price. When referenced it returns the usage counts and does not
+// delete, so the caller can surface a 409.
+func (s *Store) DeleteLocation(ctx context.Context, id uint64) (LocationUsage, error) {
+	if _, err := s.GetLocation(ctx, id); err != nil {
+		return LocationUsage{}, err
+	}
+	var u LocationUsage
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM recipe_location WHERE location_id = ?`, id).
+		Scan(&u.RecipeCount); err != nil {
+		return LocationUsage{}, err
+	}
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM item_price WHERE location_id = ?`, id).
+		Scan(&u.PriceCount); err != nil {
+		return LocationUsage{}, err
+	}
+	if u.RecipeCount > 0 || u.PriceCount > 0 {
+		return u, nil
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM location WHERE id = ?`, id); err != nil {
+		return LocationUsage{}, err
+	}
+	return LocationUsage{}, nil
 }
 
 // execer is satisfied by both *sql.DB and *sql.Tx.

@@ -9,6 +9,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import type { Location } from "@/api/types";
+import { LocationEditButton } from "./LocationEditProvider";
 
 interface Props {
   /** All locations defined in the atlas. */
@@ -74,6 +75,7 @@ export function LocationSelect({
               className="inline-flex items-center gap-1 rounded bg-secondary px-2 py-0.5 text-xs"
             >
               {l.name}
+              <LocationEditButton location={l} />
               <button
                 type="button"
                 onClick={() => onChange(selected.filter((x) => x.id !== l.id))}

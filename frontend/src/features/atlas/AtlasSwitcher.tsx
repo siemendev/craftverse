@@ -3,6 +3,7 @@ import {
   Check,
   ChevronsUpDown,
   Coins,
+  MapPin,
   Pencil,
   Plus,
   Trash2,
@@ -35,6 +36,7 @@ import { api, ApiError } from "@/api/client";
 import { useAppAuth } from "@/auth/auth";
 import { useAtlas } from "./AtlasContext";
 import { CurrenciesDialog } from "./CurrenciesDialog";
+import { LocationsDialog } from "@/features/items/LocationsDialog";
 
 export function AtlasSwitcher() {
   const { atlases, selectedAtlas, selectAtlas, refresh } = useAtlas();
@@ -46,6 +48,7 @@ export function AtlasSwitcher() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [currenciesOpen, setCurrenciesOpen] = useState(false);
+  const [locationsOpen, setLocationsOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -185,6 +188,17 @@ export function AtlasSwitcher() {
                   <Coins className="mr-2 h-4 w-4" /> Currencies
                 </CommandItem>
                 <CommandItem
+                  value="__locations__"
+                  disabled={!selectedAtlas}
+                  onSelect={() => {
+                    if (!selectedAtlas) return;
+                    setLocationsOpen(true);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <MapPin className="mr-2 h-4 w-4" /> Locations
+                </CommandItem>
+                <CommandItem
                   value="__delete__"
                   disabled={!selectedAtlas}
                   onSelect={() => {
@@ -278,6 +292,15 @@ export function AtlasSwitcher() {
           atlasName={selectedAtlas.name}
           open={currenciesOpen}
           onOpenChange={setCurrenciesOpen}
+        />
+      )}
+
+      {/* Locations */}
+      {selectedAtlas && (
+        <LocationsDialog
+          atlasId={selectedAtlas.id}
+          open={locationsOpen}
+          onOpenChange={setLocationsOpen}
         />
       )}
     </>

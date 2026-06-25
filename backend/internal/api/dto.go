@@ -31,9 +31,11 @@ type tagDTO struct {
 }
 
 type locationDTO struct {
-	ID      string `json:"id"`
-	AtlasID string `json:"atlasId"`
-	Name    string `json:"name"`
+	ID          string  `json:"id"`
+	AtlasID     string  `json:"atlasId"`
+	Name        string  `json:"name"`
+	Description *string `json:"description"`
+	Address     *string `json:"address"`
 }
 
 type currencyDTO struct {
@@ -156,7 +158,13 @@ func toTagDTOs(tags []db.Tag) []tagDTO {
 }
 
 func toLocationDTO(l db.Location) locationDTO {
-	return locationDTO{ID: idStr(l.ID), AtlasID: idStr(l.AtlasID), Name: l.Name}
+	return locationDTO{
+		ID:          idStr(l.ID),
+		AtlasID:     idStr(l.AtlasID),
+		Name:        l.Name,
+		Description: l.Description,
+		Address:     l.Address,
+	}
 }
 
 func toLocationDTOs(ls []db.Location) []locationDTO {

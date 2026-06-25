@@ -133,6 +133,12 @@ All paths prefixed `/api`. IDs are strings. `409 Conflict` carries a usage list 
 ### Locations & Tags (atlas-scoped, on-the-fly creation supported)
 - `GET /api/atlases/{id}/locations` → `[Location]`
 - `POST /api/atlases/{id}/locations` body `{name}` → `201 Location`
+- `GET /api/locations/{id}` → `Location` (public)
+- `PATCH /api/locations/{id}` body `{name, description?, address?}` → `Location` (full replace of the
+  editable fields; empty/blank `description`/`address` clears the column to null)
+- `DELETE /api/locations/{id}` → `204`, or `409 location_in_use` with
+  `details:{recipeCount, priceCount}` when the location is still referenced (no force; remove the
+  references first)
 - `GET /api/atlases/{id}/tags` → `[Tag]`
 - `POST /api/atlases/{id}/tags` body `{name, color?}` → `201 Tag`
 
@@ -148,7 +154,7 @@ All paths prefixed `/api`. IDs are strings. `409 Conflict` carries a usage list 
 ```jsonc
 Atlas        { id, name, description?, createdAt, updatedAt }
 Tag          { id, atlasId, name, color? }
-Location     { id, atlasId, name }
+Location     { id, atlasId, name, description?, address? }   // description/address nullable
 Currency     { id, atlasId, name, isDefault:bool }
 Price        { id, kind:"buy"|"sell", locationId, locationName, currencyId, currencyName, amount:int }
 ItemSummary  { id, name, tags:[Tag], isRaw:bool, locationIds:[string] }

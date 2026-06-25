@@ -21,9 +21,11 @@ type Tag struct {
 
 // Location is an atlas-scoped crafting station.
 type Location struct {
-	ID      uint64
-	AtlasID uint64
-	Name    string
+	ID          uint64
+	AtlasID     uint64
+	Name        string
+	Description *string
+	Address     *string
 }
 
 // Currency is an atlas-scoped unit of account (e.g. "Gold", "Pay2Win Coins").

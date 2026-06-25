@@ -19,6 +19,14 @@ export interface Location {
   id: string;
   atlasId: string;
   name: string;
+  description?: string | null;
+  address?: string | null;
+}
+
+export interface UpdateLocationBody {
+  name: string;
+  description?: string | null;
+  address?: string | null;
 }
 
 export interface Currency {

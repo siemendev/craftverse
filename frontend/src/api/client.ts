@@ -19,6 +19,7 @@ import type {
   UpdateAtlasBody,
   UpdateCurrencyBody,
   UpdateItemBody,
+  UpdateLocationBody,
   UpdateRecipeBody,
 } from "./types";
 
@@ -142,6 +143,11 @@ export const api = {
       method: "POST",
       body: { name },
     }),
+  getLocation: (id: string) => request<Location>(`/locations/${id}`),
+  updateLocation: (id: string, body: UpdateLocationBody) =>
+    request<Location>(`/locations/${id}`, { method: "PATCH", body }),
+  deleteLocation: (id: string) =>
+    request<void>(`/locations/${id}`, { method: "DELETE" }),
   listTags: (atlasId: string) => request<Tag[]>(`/atlases/${atlasId}/tags`),
   createTag: (atlasId: string, name: string, color?: string) =>
     request<Tag>(`/atlases/${atlasId}/tags`, {

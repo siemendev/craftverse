@@ -33,12 +33,18 @@ export function Workspace() {
 
 function AtlasWorkspace({ atlasId }: { atlasId: string }) {
   const { isAuthenticated: canEdit } = useAppAuth();
+  const { dataVersion } = useAtlas();
   const [panelItemId, setPanelItemId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
 
-  const graphState = useAsync(() => api.getGraph(atlasId), [atlasId]);
-  const itemsState = useAsync(() => api.listItems(atlasId), [atlasId]);
-  const locationsState = useAsync(() => api.listLocations(atlasId), [atlasId]);
+  // dataVersion lets cross-cutting edits (e.g. location detail changes from the
+  // atlas switcher) ask this view to refetch.
+  const graphState = useAsync(() => api.getGraph(atlasId), [atlasId, dataVersion]);
+  const itemsState = useAsync(() => api.listItems(atlasId), [atlasId, dataVersion]);
+  const locationsState = useAsync(
+    () => api.listLocations(atlasId),
+    [atlasId, dataVersion],
+  );
 
   const refetchAll = useCallback(() => {
     graphState.refetch();

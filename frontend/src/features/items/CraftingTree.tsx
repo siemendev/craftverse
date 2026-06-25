@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, CornerDownLeft, MapPin } from "lucide-react"
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import type { TreeNode, TreeRecipeBranch } from "@/api/types";
+import { LocationEditButton } from "./LocationEditProvider";
 
 /**
  * Recursive crafting tree. Multiple recipes render as parallel OR-branches.
@@ -104,12 +105,13 @@ function TreeNodeView({
 function RecipeMeta({ branch }: { branch: TreeRecipeBranch }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 py-0.5 text-[11px] text-muted-foreground">
-      {branch.locations.length > 0 && (
-        <span className="inline-flex items-center gap-1">
+      {branch.locations.map((l) => (
+        <span key={l.id} className="inline-flex items-center gap-1">
           <MapPin className="h-3 w-3" />
-          {branch.locations.map((l) => l.name).join(", ")}
+          {l.name}
+          <LocationEditButton location={l} />
         </span>
-      )}
+      ))}
     </div>
   );
 }

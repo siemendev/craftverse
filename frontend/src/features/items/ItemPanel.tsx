@@ -25,6 +25,7 @@ import { TokenInput } from "./TokenInput";
 import { ItemAutocomplete } from "./ItemAutocomplete";
 import { LocationSelect } from "./LocationSelect";
 import { LocationPicker } from "./LocationPicker";
+import { LocationEditButton } from "./LocationEditProvider";
 import { CraftingTree } from "./CraftingTree";
 import { ForceDeleteDialog } from "./ForceDeleteDialog";
 
@@ -745,12 +746,17 @@ function ExistingRecipe({
   return (
     <div className="rounded-md border border-border bg-card/40 p-3">
       <div className="mb-1.5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-muted-foreground">
-            {recipe.locations.length > 0
-              ? `@ ${recipe.locations.map((l) => l.name).join(", ")}`
-              : "Recipe"}
-          </span>
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+          {recipe.locations.length > 0 ? (
+            recipe.locations.map((l) => (
+              <span key={l.id} className="inline-flex items-center gap-1">
+                <span className="text-primary/80">@ {l.name}</span>
+                <LocationEditButton location={l} />
+              </span>
+            ))
+          ) : (
+            <span>Recipe</span>
+          )}
         </div>
         {canEdit && (
           <div className="flex items-center gap-0.5">

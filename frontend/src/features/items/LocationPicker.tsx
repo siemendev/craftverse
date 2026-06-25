@@ -9,6 +9,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import type { Location } from "@/api/types";
+import { LocationEditButton } from "./LocationEditProvider";
 
 interface Props {
   /** All locations defined in the atlas. */
@@ -62,14 +63,17 @@ export function LocationPicker({
 
   if (value && !open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex h-8 min-w-0 flex-1 items-center justify-between gap-1 rounded-md border border-input bg-transparent px-2 text-sm hover:bg-accent/40"
-      >
-        <span className="truncate">{value.name}</span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
-      </button>
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="flex h-8 min-w-0 flex-1 items-center justify-between gap-1 rounded-md border border-input bg-transparent px-2 text-sm hover:bg-accent/40"
+        >
+          <span className="truncate">{value.name}</span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+        </button>
+        <LocationEditButton location={value} />
+      </div>
     );
   }
 

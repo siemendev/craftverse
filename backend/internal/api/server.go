@@ -68,6 +68,9 @@ func (s *Server) Router(corsOrigins []string) http.Handler {
 			// Items
 			r.Get("/items/{id}", s.handleGetItem)
 			r.Get("/items/{id}/tree", s.handleItemTree)
+
+			// Locations
+			r.Get("/locations/{id}", s.handleGetLocation)
 		})
 
 		// Write routes require a valid login (no-op gate in dev mode).
@@ -88,6 +91,10 @@ func (s *Server) Router(corsOrigins []string) http.Handler {
 			// Currencies
 			r.Patch("/currencies/{id}", s.handleUpdateCurrency)
 			r.Delete("/currencies/{id}", s.handleDeleteCurrency)
+
+			// Locations
+			r.Patch("/locations/{id}", s.handleUpdateLocation)
+			r.Delete("/locations/{id}", s.handleDeleteLocation)
 
 			// Items
 			r.Patch("/items/{id}", s.handleUpdateItem)
