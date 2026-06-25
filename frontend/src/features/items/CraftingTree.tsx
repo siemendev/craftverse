@@ -58,7 +58,7 @@ function TreeNodeView({
           <span className="inline-block w-4" />
         )}
 
-        {!isRoot && node.quantity > 1 && (
+        {!isRoot && (
           <span className="text-xs font-semibold text-primary">
             {node.quantity}×
           </span>
@@ -85,23 +85,16 @@ function TreeNodeView({
 
       {open && hasChildren && (
         <div className="ml-2">
-          {node.recipes.length > 1 ? (
-            node.recipes.map((branch, i) => (
-              <OrBranch
-                key={branch.recipeId}
+          {node.recipes.map((branch, i) => (
+            <div key={branch.recipeId}>
+              {i > 0 && <OrDivider />}
+              <RecipeBranch
                 branch={branch}
-                index={i}
                 depth={depth}
                 inventoryLookup={inventoryLookup}
               />
-            ))
-          ) : (
-            <SingleRecipe
-              branch={node.recipes[0]}
-              depth={depth}
-              inventoryLookup={inventoryLookup}
-            />
-          )}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -121,7 +114,20 @@ function RecipeMeta({ branch }: { branch: TreeRecipeBranch }) {
   );
 }
 
-function SingleRecipe({
+/** Divider between alternative recipes — a thin line labelled "OR". */
+function OrDivider() {
+  return (
+    <div className="flex items-center gap-2 py-1.5">
+      <span className="h-px flex-1 bg-border/60" />
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-primary/70">
+        or
+      </span>
+      <span className="h-px flex-1 bg-border/60" />
+    </div>
+  );
+}
+
+function RecipeBranch({
   branch,
   depth,
   inventoryLookup,
@@ -132,35 +138,6 @@ function SingleRecipe({
 }) {
   return (
     <div className="border-l border-border/60 pl-3">
-      <RecipeMeta branch={branch} />
-      {branch.ingredients.map((ing) => (
-        <TreeNodeView
-          key={ing.itemId + branch.recipeId}
-          node={ing}
-          depth={depth + 1}
-          inventoryLookup={inventoryLookup}
-        />
-      ))}
-    </div>
-  );
-}
-
-function OrBranch({
-  branch,
-  index,
-  depth,
-  inventoryLookup,
-}: {
-  branch: TreeRecipeBranch;
-  index: number;
-  depth: number;
-  inventoryLookup?: (itemId: string) => number | undefined;
-}) {
-  return (
-    <div className="mt-1 rounded-md border border-border/50 bg-card/40 p-2">
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-primary/70">
-        {index === 0 ? "Recipe" : "OR — alternative recipe"}
-      </div>
       <RecipeMeta branch={branch} />
       {branch.ingredients.map((ing) => (
         <TreeNodeView
