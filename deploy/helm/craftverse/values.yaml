@@ -6,9 +6,12 @@ registry: ghcr.io/siemendev/craftverse
 backendImageTag: latest
 frontendImageTag: latest
 
-# Optional image pull secrets (leave empty if ghcr packages are public).
-# Example: [ { name: ghcr-credentials } ]
-imagePullSecrets: []
+# GHCR pull secret. Created out-of-band in the craftverse namespace (copied from
+# the shared siemendev ghcr credential), so the private backend/frontend images
+# can be pulled. Recreate with:
+#   kubectl -n craftverse create secret docker-registry craftverse-registry-credentials ...
+imagePullSecrets:
+  - name: craftverse-registry-credentials
 
 # Public hostnames (TLS via cert-manager).
 hosts:
