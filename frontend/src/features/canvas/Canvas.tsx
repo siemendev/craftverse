@@ -22,7 +22,12 @@ import { useAppAuth } from "@/auth/auth";
 import type { Graph, Item, ItemSummary, Location } from "@/api/types";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
-import { computeLayout, type CanvasNode, type ItemNodeData } from "./layout";
+import {
+  computeLayout,
+  type CanvasNode,
+  type ItemNodeData,
+  type LayoutMode,
+} from "./layout";
 import { edgeTypes, nodeTypes } from "./nodes";
 import type { EdgeState } from "./FloatingEdge";
 import {
@@ -70,13 +75,51 @@ function CanvasInner({ graph, onOpenItem, onChanged }: CanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  // Base layout: node positions are computed only when the graph changes — not
-  // on hover/search — so highlighting never resets positions or relayouts.
+  // Container size drives the aspect-ratio shaping of the force layout
+  // (portrait → taller, landscape → wider). We keep the raw dimensions in a ref
+  // and only re-layout when the aspect *bucket* flips, not on every pixel.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef({ width: 0, height: 0 });
+  const [aspect, setAspect] = useState(0);
   useEffect(() => {
-    const layout = computeLayout(graph);
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0].contentRect;
+      viewportRef.current = { width: r.width, height: r.height };
+      if (r.height > 0) setAspect(Math.round((r.width / r.height) * 4) / 4);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Layout mode: "radial" (dynamic depth onion) or "clusters" (location boxes).
+  // Remembered across sessions.
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(
+    () => (localStorage.getItem("cv-layout-mode") as LayoutMode) || "radial",
+  );
+  const changeLayout = useCallback((m: LayoutMode) => {
+    localStorage.setItem("cv-layout-mode", m);
+    setLayoutMode(m);
+  }, []);
+
+  // Base layout: node positions are computed only when the graph, aspect or
+  // layout mode changes — not on hover/search — so highlighting never resets
+  // positions or relayouts. We fit the view on first layout, aspect flips and
+  // mode switches, but not on plain graph edits (the layout is deterministic,
+  // so positions stay stable).
+  const fitKeyRef = useRef<string>("");
+  useEffect(() => {
+    if (viewportRef.current.width === 0) return;
+    const layout = computeLayout(graph, layoutMode, viewportRef.current);
     setNodes(layout.nodes);
     setEdges(layout.edges);
-  }, [graph, setNodes, setEdges]);
+    const fitKey = `${layoutMode}|${aspect}`;
+    if (fitKeyRef.current !== fitKey) {
+      fitKeyRef.current = fitKey;
+      setTimeout(() => rf.fitView({ duration: 300, padding: 0.2 }), 60);
+    }
+  }, [graph, aspect, layoutMode, setNodes, setEdges, rf]);
 
   // Dependency adjacency (product -> ingredient), matching the arrow direction.
   const depAdj = useMemo(() => {
@@ -89,31 +132,39 @@ function CanvasInner({ graph, onOpenItem, onChanged }: CanvasProps) {
     return m;
   }, [graph.edges]);
 
-  // Focus = hovered node (preferred) or search match. Highlights the ENTIRE
-  // dependency subtree (every ingredient needed, transitively, following the
-  // arrows) and dims the rest. Applied in place so positions are preserved.
-  const focusId = hoveredId ?? highlightId;
-
-  useEffect(() => {
-    let activeNodes: Set<string> | null = null;
-    let activeEdges: Set<string> | null = null;
-    if (focusId) {
-      activeNodes = new Set<string>([focusId]);
-      activeEdges = new Set<string>();
-      const queue = [focusId];
+  // Collect the entire dependency subtree of a node: itself plus every
+  // ingredient needed, transitively, following the arrows. Returns both the
+  // node set and the edge set so callers can highlight (focus effect) and zoom
+  // (search) to the same set.
+  const collectSubtree = useCallback(
+    (rootId: string) => {
+      const nodeIds = new Set<string>([rootId]);
+      const edgeIds = new Set<string>();
+      const queue = [rootId];
       while (queue.length) {
         const cur = queue.shift()!;
         for (const { nodeId, edgeId } of depAdj.get(cur) ?? []) {
-          activeEdges.add(edgeId);
-          if (!activeNodes.has(nodeId)) {
-            activeNodes.add(nodeId);
+          edgeIds.add(edgeId);
+          if (!nodeIds.has(nodeId)) {
+            nodeIds.add(nodeId);
             queue.push(nodeId);
           }
         }
       }
-    }
-    const an = activeNodes;
-    const ae = activeEdges;
+      return { nodeIds, edgeIds };
+    },
+    [depAdj],
+  );
+
+  // Focus = hovered node (preferred) or search match. Highlights the ENTIRE
+  // dependency subtree and dims the rest. Applied in place so positions are
+  // preserved.
+  const focusId = hoveredId ?? highlightId;
+
+  useEffect(() => {
+    const sub = focusId ? collectSubtree(focusId) : null;
+    const an = sub?.nodeIds ?? null;
+    const ae = sub?.edgeIds ?? null;
     setNodes((nds) =>
       nds.map((n) => {
         if (n.type !== "item") return n;
@@ -134,7 +185,7 @@ function CanvasInner({ graph, onOpenItem, onChanged }: CanvasProps) {
         return { ...e, data: { ...e.data, state: next } };
       }),
     );
-  }, [focusId, depAdj, setNodes, setEdges]);
+  }, [focusId, collectSubtree, setNodes, setEdges]);
 
   // Edge-drag dialog state.
   const [ambiguous, setAmbiguous] = useState<AmbiguousState | null>(null);
@@ -156,15 +207,21 @@ function CanvasInner({ graph, onOpenItem, onChanged }: CanvasProps) {
       );
       if (match) {
         setHighlightId(match.id);
-        const node = rf.getNode(match.id);
-        if (node) {
-          void rf.fitView({ nodes: [{ id: match.id }], duration: 600, maxZoom: 1.4 });
-        }
+        // Zoom to fit the whole highlighted subtree (the match plus every item
+        // it depends on), not just the matched node — so all dependent items
+        // are actually on screen.
+        const { nodeIds } = collectSubtree(match.id);
+        void rf.fitView({
+          nodes: [...nodeIds].map((id) => ({ id })),
+          duration: 600,
+          padding: 0.25,
+          maxZoom: 1.2,
+        });
       } else {
         setHighlightId(null);
       }
     },
-    [graph.items, rf],
+    [graph.items, rf, collectSubtree],
   );
 
   useEffect(() => {
@@ -253,7 +310,29 @@ function CanvasInner({ graph, onOpenItem, onChanged }: CanvasProps) {
   );
 
   return (
-    <div className="relative h-full w-full cv-universe-bg">
+    <div ref={containerRef} className="relative h-full w-full cv-universe-bg">
+      {/* Layout switch */}
+      <div className="absolute left-4 top-4 z-10 inline-flex rounded-lg border border-border/60 bg-card p-0.5 text-xs font-medium shadow-sm">
+        {(
+          [
+            { id: "radial", label: "Radial" },
+            { id: "clusters", label: "Orte" },
+          ] as const
+        ).map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => changeLayout(opt.id)}
+            className={
+              layoutMode === opt.id
+                ? "rounded-md bg-primary px-3 py-1.5 text-primary-foreground"
+                : "rounded-md px-3 py-1.5 text-muted-foreground hover:text-foreground"
+            }
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       {/* Search box */}
       <div className="absolute left-1/2 top-4 z-10 w-[min(420px,90vw)] -translate-x-1/2">
         <div className="relative">
@@ -305,12 +384,15 @@ function CanvasInner({ graph, onOpenItem, onChanged }: CanvasProps) {
         />
         <Controls className="!bottom-4 !left-4" />
         <MiniMap
+          className="!hidden sm:!block"
           pannable
           zoomable
           nodeColor={(n) =>
-            (n.data as ItemNodeData)?.highlighted
-              ? "hsl(258 90% 70%)"
-              : "hsl(250 22% 30%)"
+            n.type !== "item"
+              ? "transparent"
+              : (n.data as ItemNodeData)?.highlighted
+                ? "hsl(258 90% 70%)"
+                : "hsl(250 22% 30%)"
           }
           maskColor="hsl(248 30% 5% / 0.7)"
         />

@@ -1,5 +1,6 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { memo } from "react";
+import { MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ClusterNodeData, ItemNodeData } from "./layout";
 import { FloatingEdge } from "./FloatingEdge";
@@ -52,6 +53,18 @@ export const ItemNode = memo(function ItemNode({
       ))}
       <div className="truncate text-sm font-medium">{d.item.name}</div>
       <div className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-muted-foreground">
+        {d.locationNames.slice(0, 1).map((ln) => (
+          <span
+            key={ln}
+            className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary/15 px-1 py-px font-medium text-primary/90"
+          >
+            <MapPin className="h-2.5 w-2.5" />
+            <span className="truncate">{ln}</span>
+          </span>
+        ))}
+        {d.locationNames.length > 1 ? (
+          <span className="shrink-0 text-primary/70">+{d.locationNames.length - 1}</span>
+        ) : null}
         {d.item.isRaw ? (
           <span className="rounded bg-secondary px-1 py-px">raw</span>
         ) : null}
@@ -72,11 +85,13 @@ export const ItemNode = memo(function ItemNode({
   );
 });
 
+// Location box for the classic "clusters" layout. Dashed, tinted container with
+// a label; items are rendered as children positioned inside it.
 export const ClusterNode = memo(function ClusterNode({ data }: NodeProps) {
   const d = data as ClusterNodeData;
   return (
     <div className="pointer-events-none h-full w-full rounded-2xl border border-dashed border-primary/25 bg-primary/5">
-      <div className="px-4 pt-2 text-xs font-semibold uppercase tracking-wide text-primary/70">
+      <div className="px-4 pt-2.5 text-xs font-semibold uppercase tracking-wide text-primary/70">
         {d.label}
       </div>
     </div>

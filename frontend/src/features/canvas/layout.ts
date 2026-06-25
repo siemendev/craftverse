@@ -5,16 +5,34 @@ import type { Graph, ItemSummary, Location } from "@/api/types";
 
 export const NODE_WIDTH = 180;
 export const NODE_HEIGHT = 56;
-const CLUSTER_GAP_X = 140;
-const CLUSTER_GAP_Y = 120;
-const CLUSTER_PADDING = 48;
-const CLUSTER_HEADER = 40;
+
 const PORT_GAP = 8; // dead zone perpendicular to the card border
 const PORT_INSET = 12; // keep attach points this far from each corner
 
+// --- Classic "location boxes" tuning ----------------------------------------
+const CLUSTER_PADDING = 34; // inner padding of a location box
+const CLUSTER_HEADER = 34; // top space reserved for the box label
+const CLUSTER_GAP = 90; // gap between location boxes in the outer grid
+const COMP_GAP = 40; // gap between components/items inside a box
+const UNCLUSTERED = "__none__";
+
+// --- Radial "onion" tuning --------------------------------------------------
+// Min radial gap between rings. Must exceed NODE_WIDTH (180): where a spoke
+// runs horizontally, radially-aligned cards on adjacent rings are separated
+// only by this gap, so a smaller value lets their full widths overlap.
+const RING_GAP = 220;
+const ANGULAR_SLOT = 230; // arc length (px) reserved per node on a ring
+const BARYCENTER_SWEEPS = 8; // crossing-reduction passes
+// Aspect band the circular layout is stretched toward (ellipse) — moderate so
+// it fills the viewport without becoming an extreme ribbon.
+const ASPECT_MIN = 0.62;
+const ASPECT_MAX = 1.7;
+const ASPECT_FALLBACK = 1.3;
+
 export interface ItemNodeData extends Record<string, unknown> {
   item: ItemSummary;
-  clusterName: string;
+  depth: number; // 0 = raw material (outermost ring)
+  locationNames: string[]; // resolved from the item's locationIds
   highlighted: boolean;
   dimmed: boolean;
 }
@@ -25,156 +43,439 @@ export interface ClusterNodeData extends Record<string, unknown> {
 
 export type CanvasNode = Node<ItemNodeData> | Node<ClusterNodeData>;
 
-const UNCLUSTERED = "__none__";
+export type LayoutMode = "radial" | "clusters";
+
+export interface Viewport {
+  width: number;
+  height: number;
+}
+
+interface XY {
+  x: number;
+  y: number;
+}
 
 /**
- * Cluster items by their primary/first location, run a directed dagre layout
- * per cluster, then arrange the clusters side-by-side. Cluster regions are
- * rendered as group nodes; item nodes are positioned relative to them.
+ * Two layout strategies, selectable by the user:
+ *  - "radial": the dynamic dependency-depth onion (see computeRadialLayout).
+ *  - "clusters": classic location boxes, improved (see computeClusterLayout).
  */
 export function computeLayout(
   graph: Graph,
+  mode: LayoutMode,
+  viewport?: Viewport,
 ): { nodes: CanvasNode[]; edges: Edge[] } {
-  const locById = new Map<string, Location>(
-    graph.locations.map((l) => [l.id, l]),
-  );
+  return mode === "clusters"
+    ? computeClusterLayout(graph, viewport)
+    : computeRadialLayout(graph, viewport);
+}
 
-  // Bucket items by cluster (first location id, or "unclustered").
-  const buckets = new Map<string, ItemSummary[]>();
-  for (const item of graph.items) {
-    const clusterId = item.locationIds[0] ?? UNCLUSTERED;
-    const arr = buckets.get(clusterId) ?? [];
-    arr.push(item);
-    buckets.set(clusterId, arr);
+/**
+ * Radial dependency-depth layout. An item's depth is the longest path back to a
+ * raw material (an item with no ingredients): raw = 0, anything crafted from
+ * raws = 1, and so on. Depth maps to ring radius (inverted) — the most-
+ * processed items sit in the center, raw materials on the outermost ring (read
+ * inward = more refined). Because depth is the
+ * *longest* path, every ingredient is guaranteed a strictly smaller depth than
+ * its product, so all edges point outward and the radial flow stays clean.
+ * Locations are ignored entirely in this view. Within each ring, items are
+ * ordered by repeated barycenter sorting so connected items line up radially
+ * and edge crossings are minimized.
+ */
+function computeRadialLayout(
+  graph: Graph,
+  viewport?: Viewport,
+): { nodes: CanvasNode[]; edges: Edge[] } {
+  const itemById = new Map(graph.items.map((it) => [it.id, it]));
+  const nameById = (id: string) => itemById.get(id)?.name ?? id;
+  const locNameById = new Map(graph.locations.map((l) => [l.id, l.name]));
+
+  // Dependency adjacency. Edge convention: toItemId = product, fromItemId =
+  // ingredient (the product depends on the ingredient).
+  const ingredients = new Map<string, string[]>();
+  const dependents = new Map<string, string[]>();
+  for (const e of graph.edges) {
+    if (!itemById.has(e.fromItemId) || !itemById.has(e.toItemId)) continue;
+    (ingredients.get(e.toItemId) ?? ingredients.set(e.toItemId, []).get(e.toItemId)!).push(
+      e.fromItemId,
+    );
+    (dependents.get(e.fromItemId) ?? dependents.set(e.fromItemId, []).get(e.fromItemId)!).push(
+      e.toItemId,
+    );
   }
 
-  // Stable cluster order: named clusters alphabetically, unclustered last.
+  // --- Depth = longest path from a raw material, with cycle guard.
+  const depth = new Map<string, number>();
+  const STATE = new Map<string, 0 | 1 | 2>(); // 0 unseen, 1 on-stack, 2 done
+  const visit = (id: string): number => {
+    const s = STATE.get(id) ?? 0;
+    if (s === 2) return depth.get(id)!;
+    if (s === 1) return 0; // back-edge in a cycle → no contribution
+    STATE.set(id, 1);
+    let d = 0;
+    for (const ing of ingredients.get(id) ?? []) {
+      d = Math.max(d, 1 + visit(ing));
+    }
+    STATE.set(id, 2);
+    depth.set(id, d);
+    return d;
+  };
+  for (const it of graph.items) visit(it.id);
+
+  // --- Group into rings by depth.
+  let maxDepth = 0;
+  for (const d of depth.values()) maxDepth = Math.max(maxDepth, d);
+  const order: string[][] = Array.from({ length: maxDepth + 1 }, () => []);
+  for (const it of graph.items) order[depth.get(it.id) ?? 0].push(it.id);
+  for (const ring of order) ring.sort((a, b) => nameById(a).localeCompare(nameById(b)));
+
+  // --- Barycenter ordering: pull each item toward the average angular slot of
+  // its neighbors (ingredients + dependents) so spokes align and crossings drop.
+  const neighbors = (id: string) => [
+    ...(ingredients.get(id) ?? []),
+    ...(dependents.get(id) ?? []),
+  ];
+  const fractionOf = () => {
+    const f = new Map<string, number>();
+    for (const ring of order) {
+      const n = ring.length;
+      ring.forEach((id, i) => f.set(id, n > 1 ? i / (n - 1) : 0.5));
+    }
+    return f;
+  };
+  for (let sweep = 0; sweep < BARYCENTER_SWEEPS; sweep++) {
+    const f = fractionOf();
+    for (const ring of order) {
+      const key = new Map<string, number>();
+      for (const id of ring) {
+        const nb = neighbors(id);
+        const k = nb.length
+          ? nb.reduce((s, n) => s + (f.get(n) ?? 0.5), 0) / nb.length
+          : (f.get(id) ?? 0.5);
+        key.set(id, k);
+      }
+      ring.sort(
+        (a, b) => key.get(a)! - key.get(b)! || nameById(a).localeCompare(nameById(b)),
+      );
+    }
+  }
+
+  // --- Radius per ring. Inverted onion: the most-processed items (max depth)
+  // sit at the center, raw materials (depth 0, the leaves) on the outermost
+  // ring. We size from the center outward so each ring fits its items — and the
+  // typically-large raw ring lands outside where the circumference is biggest.
+  const radiusFor = (n: number) => (n <= 1 ? 0 : (ANGULAR_SLOT * n) / (Math.PI * 2));
+  const radius: number[] = [];
+  for (let L = maxDepth; L >= 0; L--) {
+    const content = radiusFor(order[L].length);
+    radius[L] = L === maxDepth ? content : Math.max(radius[L + 1] + RING_GAP, content);
+  }
+
+  // --- Place each item on its ring.
+  const centerById = new Map<string, Center>();
+  const positioned: { id: string; xy: XY }[] = [];
+  for (let L = 0; L <= maxDepth; L++) {
+    const ring = order[L];
+    const n = ring.length;
+    const r = radius[L];
+    ring.forEach((id, i) => {
+      const angle = n > 0 ? (i / n) * Math.PI * 2 : 0;
+      const xy = r === 0 ? { x: 0, y: 0 } : { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+      positioned.push({ id, xy });
+    });
+  }
+
+  // Stretch the circle toward the viewport aspect (ellipse) — only spreads, so
+  // no overlaps appear.
+  shapeToAspect(positioned.map((p) => p.xy), viewport);
+
+  const nodes: CanvasNode[] = positioned.map(({ id, xy }) => {
+    centerById.set(id, { cx: xy.x, cy: xy.y });
+    return {
+      id,
+      type: "item",
+      position: { x: xy.x - NODE_WIDTH / 2, y: xy.y - NODE_HEIGHT / 2 },
+      data: {
+        item: itemById.get(id)!,
+        depth: depth.get(id) ?? 0,
+        locationNames: (itemById.get(id)!.locationIds ?? [])
+          .map((lid) => locNameById.get(lid))
+          .filter((n): n is string => !!n),
+        highlighted: false,
+        dimmed: false,
+      },
+    } as Node<ItemNodeData>;
+  });
+
+  const edges = buildEdges(graph, centerById);
+  return { nodes, edges };
+}
+
+/**
+ * Stretch a set of points toward the viewport aspect by spreading the shorter
+ * axis. Only ever enlarges gaps — never compresses — so it cannot create
+ * overlaps. Target aspect is clamped to [MIN, MAX].
+ */
+function shapeToAspect(pts: XY[], viewport?: Viewport): void {
+  if (pts.length < 2) return;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const p of pts) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  const w = maxX - minX;
+  const h = maxY - minY;
+  if (w <= 0 || h <= 0) return;
+  const a0 = w / h;
+  const ar =
+    viewport && viewport.height > 0 ? viewport.width / viewport.height : ASPECT_FALLBACK;
+  const target = Math.min(ASPECT_MAX, Math.max(ASPECT_MIN, ar));
+  let scaleX = 1;
+  let scaleY = 1;
+  if (target > a0) scaleX = target / a0;
+  else scaleY = a0 / target;
+  if (scaleX === 1 && scaleY === 1) return;
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  for (const p of pts) {
+    p.x = cx + (p.x - cx) * scaleX;
+    p.y = cy + (p.y - cy) * scaleY;
+  }
+}
+
+// --- Classic location-box layout -------------------------------------------
+
+/**
+ * Classic layout: one box per location, improved over the original. Each box is
+ * laid out internally by splitting its items into connected components (using
+ * only intra-box edges), running dagre on multi-item components (so recipes
+ * read as little top-down trees) and treating lone items as 1×1 boxes, then
+ * shelf-packing those components into a roughly square grid — so a box full of
+ * unconnected items wraps instead of becoming one endless row. The boxes are
+ * then arranged in an outer grid whose column count follows the viewport aspect
+ * (landscape → more columns/wider, portrait → fewer/taller).
+ */
+function computeClusterLayout(
+  graph: Graph,
+  viewport?: Viewport,
+): { nodes: CanvasNode[]; edges: Edge[] } {
+  const locById = new Map<string, Location>(graph.locations.map((l) => [l.id, l]));
+  const itemById = new Map(graph.items.map((it) => [it.id, it]));
+
+  // Bucket items by primary (first) location.
+  const buckets = new Map<string, ItemSummary[]>();
+  for (const it of graph.items) {
+    const cid = it.locationIds[0] ?? UNCLUSTERED;
+    (buckets.get(cid) ?? buckets.set(cid, []).get(cid)!).push(it);
+  }
   const clusterIds = [...buckets.keys()].sort((a, b) => {
     if (a === UNCLUSTERED) return 1;
     if (b === UNCLUSTERED) return -1;
-    const an = locById.get(a)?.name ?? a;
-    const bn = locById.get(b)?.name ?? b;
-    return an.localeCompare(bn);
+    return (locById.get(a)?.name ?? a).localeCompare(locById.get(b)?.name ?? b);
+  });
+  const itemToCluster = new Map<string, string>();
+  for (const [cid, items] of buckets) for (const it of items) itemToCluster.set(it.id, cid);
+
+  const locNamesFor = (it: ItemSummary) =>
+    (it.locationIds ?? [])
+      .map((lid) => locById.get(lid)?.name)
+      .filter((n): n is string => !!n);
+
+  // Lay out each box internally.
+  const laid = clusterIds.map((cid) => {
+    const items = buckets.get(cid)!;
+    const intra = graph.edges.filter(
+      (e) =>
+        itemToCluster.get(e.fromItemId) === cid &&
+        itemToCluster.get(e.toItemId) === cid &&
+        itemById.has(e.fromItemId) &&
+        itemById.has(e.toItemId),
+    );
+    return { cid, items, inner: layoutClusterInner(items, intra) };
   });
 
-  const itemToCluster = new Map<string, string>();
-  for (const [cid, items] of buckets) {
-    for (const it of items) itemToCluster.set(it.id, cid);
-  }
+  // Outer grid: column count shaped by viewport aspect.
+  const C = laid.length;
+  const ar = viewport && viewport.height > 0 ? viewport.width / viewport.height : 1.3;
+  const cols = Math.max(1, Math.min(C, Math.round(Math.sqrt(C * Math.max(0.5, ar)))));
 
-  const nodes: CanvasNode[] = [];
+  const clusterNodes: Node<ClusterNodeData>[] = [];
   const childNodes: Node<ItemNodeData>[] = [];
-  // Absolute center of each item node (flow coords), used to lay out edge ports.
-  const centerById = new Map<string, { cx: number; cy: number }>();
-
-  // Pack clusters into a roughly square grid instead of one long horizontal
-  // row, so the graph is compact and edges are easier to follow.
-  const cols = Math.max(1, Math.ceil(Math.sqrt(clusterIds.length)));
-  let colIndex = 0;
+  const centerById = new Map<string, Center>();
+  let col = 0;
   let cursorX = 0;
   let rowY = 0;
-  let rowMaxHeight = 0;
-
-  for (const clusterId of clusterIds) {
-    const items = buckets.get(clusterId)!;
-    const clusterName =
-      clusterId === UNCLUSTERED
-        ? "No location"
-        : (locById.get(clusterId)?.name ?? "Location");
-
-    // Per-cluster dagre layout including only intra-cluster edges so each
-    // cluster reads as its own crafting hierarchy.
-    const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: "TB", nodesep: 40, ranksep: 70, marginx: 8, marginy: 8 });
-    g.setDefaultEdgeLabel(() => ({}));
-    for (const it of items) {
-      g.setNode(it.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
-    }
-    for (const e of graph.edges) {
-      if (
-        itemToCluster.get(e.fromItemId) === clusterId &&
-        itemToCluster.get(e.toItemId) === clusterId
-      ) {
-        if (g.hasNode(e.fromItemId) && g.hasNode(e.toItemId)) {
-          g.setEdge(e.fromItemId, e.toItemId);
-        }
-      }
-    }
-    dagre.layout(g);
-
-    let maxX = 0;
-    let maxY = 0;
-    const positioned: { id: string; x: number; y: number }[] = [];
-    for (const it of items) {
-      const n = g.node(it.id);
-      // dagre gives center coords; convert to top-left within the cluster.
-      const x = (n?.x ?? NODE_WIDTH / 2) - NODE_WIDTH / 2 + CLUSTER_PADDING;
-      const y =
-        (n?.y ?? NODE_HEIGHT / 2) -
-        NODE_HEIGHT / 2 +
-        CLUSTER_PADDING +
-        CLUSTER_HEADER;
-      positioned.push({ id: it.id, x, y });
-      maxX = Math.max(maxX, x + NODE_WIDTH);
-      maxY = Math.max(maxY, y + NODE_HEIGHT);
-    }
-
-    const clusterWidth = Math.max(maxX + CLUSTER_PADDING, NODE_WIDTH + CLUSTER_PADDING * 2);
-    const clusterHeight = Math.max(
-      maxY + CLUSTER_PADDING,
-      CLUSTER_HEADER + CLUSTER_PADDING * 2,
-    );
-
-    const clusterNodeId = `cluster:${clusterId}`;
-    nodes.push({
+  let rowMaxH = 0;
+  for (const { cid, items, inner } of laid) {
+    const label =
+      cid === UNCLUSTERED ? "No location" : (locById.get(cid)?.name ?? "Location");
+    const cw = inner.width + CLUSTER_PADDING * 2;
+    const ch = inner.height + CLUSTER_PADDING * 2 + CLUSTER_HEADER;
+    const clusterNodeId = `cluster:${cid}`;
+    clusterNodes.push({
       id: clusterNodeId,
       type: "cluster",
       position: { x: cursorX, y: rowY },
-      data: { label: clusterName },
+      data: { label },
       draggable: false,
       selectable: false,
-      style: { width: clusterWidth, height: clusterHeight },
+      style: { width: cw, height: ch },
     } as Node<ClusterNodeData>);
 
     for (const it of items) {
-      const p = positioned.find((q) => q.id === it.id)!;
+      const p = inner.pos.get(it.id)!;
+      const x = p.x + CLUSTER_PADDING;
+      const y = p.y + CLUSTER_PADDING + CLUSTER_HEADER;
       childNodes.push({
         id: it.id,
         type: "item",
         parentId: clusterNodeId,
         extent: "parent",
-        position: { x: p.x, y: p.y },
+        position: { x, y },
         data: {
           item: it,
-          clusterName,
+          depth: 0,
+          locationNames: locNamesFor(it),
           highlighted: false,
           dimmed: false,
         },
       } as Node<ItemNodeData>);
-      // Absolute center = cluster position + child position + half extents.
       centerById.set(it.id, {
-        cx: cursorX + p.x + NODE_WIDTH / 2,
-        cy: rowY + p.y + NODE_HEIGHT / 2,
+        cx: cursorX + x + NODE_WIDTH / 2,
+        cy: rowY + y + NODE_HEIGHT / 2,
       });
     }
 
-    rowMaxHeight = Math.max(rowMaxHeight, clusterHeight);
-    cursorX += clusterWidth + CLUSTER_GAP_X;
-    colIndex += 1;
-    if (colIndex >= cols) {
-      colIndex = 0;
+    rowMaxH = Math.max(rowMaxH, ch);
+    cursorX += cw + CLUSTER_GAP;
+    col += 1;
+    if (col >= cols) {
+      col = 0;
       cursorX = 0;
-      rowY += rowMaxHeight + CLUSTER_GAP_Y;
-      rowMaxHeight = 0;
+      rowY += rowMaxH + CLUSTER_GAP;
+      rowMaxH = 0;
     }
   }
 
-  // Child (item) nodes must come after their parent group nodes.
-  nodes.push(...childNodes);
-
+  // Parent (cluster) nodes must precede their children in the array.
+  const nodes: CanvasNode[] = [...clusterNodes, ...childNodes];
   const edges = buildEdges(graph, centerById);
-
   return { nodes, edges };
+}
+
+/**
+ * Internal layout of one location box. Returns item positions (top-left, box-
+ * local) plus the content width/height. Connected components are laid out with
+ * dagre; everything is shelf-packed into a roughly square area.
+ */
+function layoutClusterInner(
+  items: ItemSummary[],
+  edges: Graph["edges"],
+): { pos: Map<string, XY>; width: number; height: number } {
+  const ids = new Set(items.map((i) => i.id));
+
+  // Undirected adjacency → connected components.
+  const adj = new Map<string, string[]>();
+  for (const it of items) adj.set(it.id, []);
+  for (const e of edges) {
+    if (ids.has(e.fromItemId) && ids.has(e.toItemId)) {
+      adj.get(e.fromItemId)!.push(e.toItemId);
+      adj.get(e.toItemId)!.push(e.fromItemId);
+    }
+  }
+  const comp = new Map<string, number>();
+  let nComp = 0;
+  for (const it of items) {
+    if (comp.has(it.id)) continue;
+    const queue = [it.id];
+    comp.set(it.id, nComp);
+    while (queue.length) {
+      const cur = queue.shift()!;
+      for (const nx of adj.get(cur)!) {
+        if (!comp.has(nx)) {
+          comp.set(nx, nComp);
+          queue.push(nx);
+        }
+      }
+    }
+    nComp += 1;
+  }
+
+  // Lay out each component into a box at local origin.
+  type Box = { pos: Map<string, XY>; width: number; height: number };
+  const boxes: Box[] = [];
+  for (let c = 0; c < nComp; c++) {
+    const members = items.filter((it) => comp.get(it.id) === c).map((i) => i.id);
+    if (members.length === 1) {
+      boxes.push({
+        pos: new Map([[members[0], { x: 0, y: 0 }]]),
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT,
+      });
+      continue;
+    }
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: "TB", nodesep: 34, ranksep: 56, marginx: 0, marginy: 0 });
+    g.setDefaultEdgeLabel(() => ({}));
+    for (const m of members) g.setNode(m, { width: NODE_WIDTH, height: NODE_HEIGHT });
+    for (const e of edges) {
+      if (comp.get(e.fromItemId) === c && comp.get(e.toItemId) === c) {
+        // ingredient (from) above product (to): raw on top, refined below.
+        g.setEdge(e.fromItemId, e.toItemId);
+      }
+    }
+    dagre.layout(g);
+    const pos = new Map<string, XY>();
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    for (const m of members) {
+      const n = g.node(m);
+      const x = (n?.x ?? NODE_WIDTH / 2) - NODE_WIDTH / 2;
+      const y = (n?.y ?? NODE_HEIGHT / 2) - NODE_HEIGHT / 2;
+      pos.set(m, { x, y });
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + NODE_WIDTH);
+      maxY = Math.max(maxY, y + NODE_HEIGHT);
+    }
+    for (const m of members) {
+      const p = pos.get(m)!;
+      p.x -= minX;
+      p.y -= minY;
+    }
+    boxes.push({ pos, width: maxX - minX, height: maxY - minY });
+  }
+
+  // Shelf-pack the component boxes into a roughly square grid.
+  const slotW = NODE_WIDTH + COMP_GAP;
+  const maxBoxW = boxes.reduce((m, b) => Math.max(m, b.width), 0);
+  const targetW = Math.max(maxBoxW, Math.ceil(Math.sqrt(items.length)) * slotW);
+  const ordered = boxes.slice().sort((a, b) => b.height - a.height); // tall first
+
+  const pos = new Map<string, XY>();
+  let cx = 0;
+  let cy = 0;
+  let rowH = 0;
+  let usedW = 0;
+  for (const b of ordered) {
+    if (cx > 0 && cx + b.width > targetW) {
+      cx = 0;
+      cy += rowH + COMP_GAP;
+      rowH = 0;
+    }
+    for (const [id, p] of b.pos) pos.set(id, { x: cx + p.x, y: cy + p.y });
+    cx += b.width + COMP_GAP;
+    rowH = Math.max(rowH, b.height);
+    usedW = Math.max(usedW, cx - COMP_GAP);
+  }
+  return { pos, width: usedW, height: cy + rowH };
 }
 
 // --- Edge ports -------------------------------------------------------------
@@ -224,10 +525,7 @@ function attach(c: Center, side: Position, frac: number): { x: number; y: number
   }
 }
 
-function buildEdges(
-  graph: Graph,
-  centerById: Map<string, Center>,
-): Edge[] {
+function buildEdges(graph: Graph, centerById: Map<string, Center>): Edge[] {
   // Resolve the side each endpoint attaches to.
   const geos = graph.edges
     .map((e) => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, Loader2, GitBranch } from "lucide-react";
 import {
   Sheet,
@@ -57,6 +57,26 @@ export function ItemPanel({
 
   // Create mode: drawer is open for a brand-new (not-yet-saved) item.
   const isCreate = open && !itemId;
+
+  // Duplicate check: in create mode, surface existing items whose name matches
+  // what's being typed, so the user can jump to the existing one instead of
+  // creating a duplicate. Exact (case-insensitive) matches rank first.
+  const nameQuery = name.trim().toLowerCase();
+  const duplicateMatches = useMemo(() => {
+    if (!isCreate || nameQuery.length < 2) return [];
+    return items
+      .filter((i) => i.name.toLowerCase().includes(nameQuery))
+      .sort((a, b) => {
+        const aExact = a.name.toLowerCase() === nameQuery ? 0 : 1;
+        const bExact = b.name.toLowerCase() === nameQuery ? 0 : 1;
+        if (aExact !== bExact) return aExact - bExact;
+        return a.name.length - b.name.length;
+      })
+      .slice(0, 6);
+  }, [isCreate, nameQuery, items]);
+  const hasExactDuplicate = duplicateMatches.some(
+    (i) => i.name.toLowerCase() === nameQuery,
+  );
 
   const load = useCallback(async () => {
     if (!itemId) return;
@@ -221,6 +241,27 @@ export function ItemPanel({
                   placeholder={isCreate ? "e.g. Engine" : undefined}
                 />
               </Field>
+              {isCreate && duplicateMatches.length > 0 && (
+                <div className="rounded-md border border-border bg-card/50 p-3">
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    {hasExactDuplicate
+                      ? "An item with this name already exists. Did you mean:"
+                      : "Did you mean one of these existing items?"}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {duplicateMatches.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => onCreated?.(m.id)}
+                        className="rounded-md border border-border bg-secondary px-2 py-1 text-sm text-secondary-foreground transition-colors hover:bg-secondary/70"
+                      >
+                        {m.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <Field label="Notes">
                 {canEdit ? (
                   <textarea
