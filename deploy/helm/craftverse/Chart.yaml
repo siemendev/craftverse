@@ -1,0 +1,6 @@
+apiVersion: v2
+name: craftverse
+description: Craftverse umbrella chart (backend, frontend, Keycloak, MariaDB operator CRs)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

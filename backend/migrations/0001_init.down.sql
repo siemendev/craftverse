@@ -1,0 +1,9 @@
+-- Craftverse initial schema rollback.
+DROP TABLE IF EXISTS recipe_location;
+DROP TABLE IF EXISTS recipe_ingredient;
+DROP TABLE IF EXISTS recipe;
+DROP TABLE IF EXISTS location;
+DROP TABLE IF EXISTS item_tag;
+DROP TABLE IF EXISTS tag;
+DROP TABLE IF EXISTS item;
+DROP TABLE IF EXISTS atlas;

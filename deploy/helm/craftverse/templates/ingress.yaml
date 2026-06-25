@@ -1,0 +1,48 @@
+{{- /*
+App ingress (Traefik): /api -> backend, / -> frontend.
+Plus the cert-manager Certificate covering both app + auth hosts; the
+referenced secret is consumed by this ingress and the keycloak ingress.
+*/ -}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: craftverse
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: {{ .Values.tls.secretName }}
+  issuerRef:
+    name: {{ .Values.tls.clusterIssuer }}
+    kind: ClusterIssuer
+  dnsNames:
+    - {{ .Values.hosts.app | quote }}
+    - {{ .Values.hosts.auth | quote }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: craftverse-app
+  namespace: {{ .Release.Namespace }}
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: {{ .Values.tls.secretName }}
+      hosts:
+        - {{ .Values.hosts.app | quote }}
+  rules:
+    - host: {{ .Values.hosts.app | quote }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  name: http

@@ -1,0 +1,87 @@
+# Craftverse umbrella chart values.
+# CI overrides registry + image tags via --set-string (see .github/workflows/deploy.yml).
+
+# Container registry holding `backend` and `frontend` images.
+registry: ghcr.io/siemendev/craftverse
+backendImageTag: latest
+frontendImageTag: latest
+
+# Optional image pull secrets (leave empty if ghcr packages are public).
+# Example: [ { name: ghcr-credentials } ]
+imagePullSecrets: []
+
+# Public hostnames (TLS via cert-manager).
+hosts:
+  app: craftverse.siemen.cloud
+  auth: auth.craftverse.siemen.cloud
+
+# cert-manager ClusterIssuer producing the TLS cert for both hosts.
+tls:
+  clusterIssuer: cloudflare-issuer
+  secretName: craftverse-tls
+
+backend:
+  replicas: 1
+  port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: "1"
+      memory: 256Mi
+
+frontend:
+  replicas: 1
+  port: 8080 # nginx in the frontend image listens on 8080 (see frontend/nginx.conf)
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+keycloak:
+  image: quay.io/keycloak/keycloak:26.1
+  replicas: 1
+  port: 8080
+  # Bootstrap admin (temporary; create real admins after first start).
+  adminUsername: admin
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# MariaDB operator (k8s.mariadb.com/v1alpha1). One instance, two databases.
+mariadb:
+  image: mariadb:10.11
+  storageSize: 10Gi
+  storageClass: local-path
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+# Database / user names. Passwords are sourced from a generated Secret
+# (see secrets.yaml) unless overridden here.
+db:
+  craftverseDatabase: craftverse
+  keycloakDatabase: keycloak
+  appUser: craftverse
+  keycloakUser: keycloak
+  # Provide explicit passwords to pin them; otherwise random ones are generated
+  # on first install and preserved across upgrades via lookup.
+  appPassword: ""
+  keycloakPassword: ""
+  rootPassword: ""
+
+# OIDC config the backend trusts. Issuer is derived from the auth host.
+oidc:
+  audience: craftverse-web

@@ -1,0 +1,2 @@
+# Place file-provider dynamic config here if needed. Routing is done via
+# docker labels in docker-compose.yml, so this directory is normally empty.

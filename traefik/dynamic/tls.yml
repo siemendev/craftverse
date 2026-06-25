@@ -1,0 +1,11 @@
+# Dynamic TLS config (local dev). The mkcert-issued cert for cvlocal.com is
+# mounted at /certs. Used as the default cert for the websecure entrypoint.
+tls:
+  certificates:
+    - certFile: /certs/cvlocal.com.pem
+      keyFile: /certs/cvlocal.com-key.pem
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/cvlocal.com.pem
+        keyFile: /certs/cvlocal.com-key.pem

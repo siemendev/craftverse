@@ -1,0 +1,166 @@
+# Craftverse — local development stack.
+#   make up        # bring everything up
+#   open http://craftverse.localhost      (app)
+#   open http://auth.localhost            (keycloak)
+#   open http://localhost:8081            (traefik dashboard)
+#
+# Routing (Traefik v3, docker label provider):
+#   craftverse.localhost            -> frontend (Vite dev server, HMR)
+#   craftverse.localhost/api        -> backend  (higher priority)
+#   auth.localhost                  -> keycloak
+#   mariadb                         -> internal only (no Traefik router)
+#
+# Credentials come from .env (copy from .env.example). DEV ONLY.
+
+name: craftverse
+
+networks:
+  craftverse:
+    name: craftverse
+
+volumes:
+  mariadb-data:
+
+services:
+  # --------------------------------------------------------------------- #
+  traefik:
+    image: traefik:v3.3
+    container_name: craftverse-traefik
+    restart: unless-stopped
+    # Routing is defined declaratively in ./traefik/dynamic (file provider), not
+    # via docker labels — OrbStack's daemon rejects Traefik's docker client API
+    # version. Hence no docker.sock mount and no service labels below.
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8090:8080" # dashboard (insecure, dev only)
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      - ./traefik/certs:/certs:ro
+    networks:
+      craftverse:
+        # So the backend can reach Keycloak via the public issuer URL (https://cvlocal.com/auth)
+        # through Traefik+TLS, exactly like the browser does.
+        aliases:
+          - cvlocal.com
+
+  # --------------------------------------------------------------------- #
+  mariadb:
+    image: mariadb:10.11
+    container_name: craftverse-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-root}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-craftverse}
+      MARIADB_USER: ${MARIADB_USER:-app}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-app}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+      # *.sql files in this dir run on first init (creates keycloak DB + grants).
+      - ./deploy/mariadb-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - craftverse
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # --------------------------------------------------------------------- #
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    container_name: craftverse-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: mariadb
+      KC_DB_URL_HOST: ${KC_DB_URL_HOST:-mariadb}
+      KC_DB_URL_DATABASE: ${KC_DB_URL_DATABASE:-keycloak}
+      KC_DB_USERNAME: ${KC_DB_USERNAME:-app}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:-app}
+      # Served behind Traefik (TLS) at https://cvlocal.com/auth. This base URL becomes
+      # the realm issuer in tokens. Proxy headers from Traefik are trusted.
+      KC_HOSTNAME: https://cvlocal.com/auth
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./deploy/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    networks:
+      - craftverse
+
+  # --------------------------------------------------------------------- #
+  # One-shot migration runner: applies golang-migrate migrations, then exits.
+  # Backend waits for this to complete successfully before serving.
+  migrate:
+    build:
+      context: ./backend
+    image: craftverse-backend:dev
+    container_name: craftverse-migrate
+    # ENTRYPOINT is already /server (see backend/Dockerfile); these are its args.
+    command: ["migrate", "up"]
+    environment:
+      CRAFTVERSE_DB_DSN: ${CRAFTVERSE_DB_DSN:-app:app@tcp(mariadb:3306)/craftverse?parseTime=true&loc=UTC}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    networks:
+      - craftverse
+    restart: "no"
+
+  # --------------------------------------------------------------------- #
+  backend:
+    build:
+      context: ./backend
+    image: craftverse-backend:dev
+    container_name: craftverse-backend
+    restart: unless-stopped
+    environment:
+      CRAFTVERSE_HTTP_ADDR: ${CRAFTVERSE_HTTP_ADDR:-:8080}
+      CRAFTVERSE_DB_DSN: ${CRAFTVERSE_DB_DSN:-app:app@tcp(mariadb:3306)/craftverse?parseTime=true&loc=UTC}
+      # Public issuer = exactly what tokens carry in `iss`. The `cvlocal.com` network
+      # alias routes this through Traefik+TLS to Keycloak, just like the browser.
+      CRAFTVERSE_OIDC_ISSUER: ${CRAFTVERSE_OIDC_ISSUER:-https://cvlocal.com/auth/realms/craftverse}
+      CRAFTVERSE_OIDC_AUDIENCE: ${CRAFTVERSE_OIDC_AUDIENCE:-craftverse-web}
+      CRAFTVERSE_CORS_ORIGINS: ${CRAFTVERSE_CORS_ORIGINS:-https://cvlocal.com}
+      # Trust the mkcert root CA for the HTTPS call to Keycloak (Go reads SSL_CERT_FILE).
+      SSL_CERT_FILE: /certs/rootCA.pem
+    volumes:
+      - ./traefik/certs/rootCA.pem:/certs/rootCA.pem:ro
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_started
+    networks:
+      - craftverse
+
+  # --------------------------------------------------------------------- #
+  frontend:
+    build:
+      context: ./frontend
+    image: craftverse-frontend:dev
+    container_name: craftverse-frontend
+    restart: unless-stopped
+    # Production nginx image; runtime config.js is rendered from these env vars
+    # at container start (see frontend/docker-entrypoint.sh). More robust behind
+    # Traefik than the Vite dev server's host checks.
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+      VITE_OIDC_AUTHORITY: ${VITE_OIDC_AUTHORITY:-https://cvlocal.com/auth/realms/craftverse}
+      VITE_OIDC_CLIENT_ID: ${VITE_OIDC_CLIENT_ID:-craftverse-web}
+      VITE_OIDC_REDIRECT_URI: ${VITE_OIDC_REDIRECT_URI:-https://cvlocal.com/}
+    depends_on:
+      - backend
+    networks:
+      - craftverse

@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: frontend
+    app.kubernetes.io/part-of: craftverse
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      app: frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      {{- include "craftverse.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: frontend
+          image: {{ include "craftverse.frontendImage" . }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.port }}
+          # Runtime config rendered into /config.js by the image entrypoint, so
+          # the SPA knows where the API and Keycloak live (no rebuild per env).
+          env:
+            - name: VITE_API_BASE_URL
+              value: "/api"
+            - name: VITE_OIDC_AUTHORITY
+              value: {{ include "craftverse.oidcIssuer" . | quote }}
+            - name: VITE_OIDC_CLIENT_ID
+              value: {{ .Values.oidc.audience | quote }}
+            - name: VITE_OIDC_REDIRECT_URI
+              value: {{ printf "https://%s/" .Values.hosts.app | quote }}
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: frontend
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  selector:
+    app: frontend

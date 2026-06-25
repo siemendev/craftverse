@@ -1,0 +1,37 @@
+# Dynamic routing (local dev). Routes one host (cvlocal.com) over HTTPS to the
+# three services by path. Services are addressed by their compose DNS names on
+# the craftverse network. Higher priority wins for overlapping prefixes.
+http:
+  routers:
+    backend:
+      rule: "Host(`cvlocal.com`) && PathPrefix(`/api`)"
+      entryPoints: [websecure]
+      service: backend
+      priority: 100
+      tls: {}
+    keycloak:
+      rule: "Host(`cvlocal.com`) && PathPrefix(`/auth`)"
+      entryPoints: [websecure]
+      service: keycloak
+      priority: 50
+      tls: {}
+    frontend:
+      rule: "Host(`cvlocal.com`)"
+      entryPoints: [websecure]
+      service: frontend
+      priority: 1
+      tls: {}
+
+  services:
+    backend:
+      loadBalancer:
+        servers:
+          - url: "http://backend:8080"
+    frontend:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:8080"
+    keycloak:
+      loadBalancer:
+        servers:
+          - url: "http://keycloak:8080"

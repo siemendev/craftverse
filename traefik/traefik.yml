@@ -1,0 +1,31 @@
+# Traefik v3 static configuration (local dev).
+# Mounted read-only into the traefik container at /etc/traefik/traefik.yml.
+
+api:
+  dashboard: true
+  insecure: true # dashboard on :8080 (host-mapped to 8081) — dev only
+
+log:
+  level: INFO
+
+accessLog: {}
+
+entryPoints:
+  web:
+    address: ":80"
+    # Redirect all plain HTTP to HTTPS.
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+
+providers:
+  # File provider only. The Docker label provider is incompatible with OrbStack's
+  # daemon (Traefik pins Docker API 1.24, OrbStack requires >= 1.40), so routing is
+  # defined declaratively in /etc/traefik/dynamic against container DNS names.
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true

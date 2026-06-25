@@ -1,0 +1,15 @@
+# NOTE: This file is DOCUMENTATION ONLY. The data-access layer in internal/db
+# is hand-written with database/sql so that `go build` works without any code
+# generation tools installed. Running sqlc is optional and not part of CI.
+version: "2"
+sql:
+  - engine: "mysql"
+    schema: "migrations/0001_init.up.sql"
+    queries: "queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/sqlcgen"
+        emit_json_tags: true
+        emit_prepared_queries: false
+        emit_interface: true

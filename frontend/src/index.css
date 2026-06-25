@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark "universe" theme is the default and only theme. */
+    --background: 248 30% 5%;
+    --foreground: 250 20% 92%;
+
+    --card: 250 28% 9%;
+    --card-foreground: 250 20% 92%;
+
+    --popover: 250 30% 8%;
+    --popover-foreground: 250 20% 92%;
+
+    --primary: 258 90% 70%;
+    --primary-foreground: 250 40% 10%;
+
+    --secondary: 250 20% 16%;
+    --secondary-foreground: 250 20% 92%;
+
+    --muted: 250 18% 16%;
+    --muted-foreground: 250 12% 62%;
+
+    --accent: 258 60% 24%;
+    --accent-foreground: 250 20% 95%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 250 22% 20%;
+    --input: 250 22% 20%;
+    --ring: 258 90% 70%;
+
+    --radius: 0.6rem;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* ---- Universe canvas aesthetics ---------------------------------------- */
+.cv-universe-bg {
+  background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(circle at 20% 30%, hsl(258 80% 30% / 0.18), transparent 40%),
+    radial-gradient(circle at 80% 70%, hsl(190 80% 30% / 0.12), transparent 42%),
+    radial-gradient(circle at 50% 90%, hsl(300 80% 30% / 0.1), transparent 45%);
+}
+
+/* React Flow overrides for the dark look.
+   NOTE: deliberately NO SVG `filter`/`drop-shadow` on edge paths — it
+   re-rasterizes every edge on every pan/zoom frame and tanks performance.
+   A solid brighter stroke reads just as well. */
+.react-flow__edge {
+  cursor: default;
+  pointer-events: none;
+}
+.react-flow__edge-path {
+  stroke: hsl(258 85% 72% / 0.7);
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: hsl(258 95% 78%);
+}
+.react-flow__handle {
+  background: hsl(var(--primary));
+  border: none;
+  width: 8px;
+  height: 8px;
+}
+.react-flow__controls button {
+  background: hsl(var(--card));
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+  fill: hsl(var(--foreground));
+}
+.react-flow__controls button:hover {
+  background: hsl(var(--accent));
+}
+.react-flow__minimap {
+  background: hsl(var(--card)) !important;
+  border-radius: var(--radius);
+  border: 1px solid hsl(var(--border));
+}
+.react-flow__attribution {
+  background: transparent !important;
+  color: hsl(var(--muted-foreground));
+}

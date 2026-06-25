@@ -1,0 +1,142 @@
+{{- /*
+Keycloak: realm ConfigMap (from files/realm-export.json), Deployment, Service, Ingress.
+Runs against the operator-provided MariaDB (KC_DB=mariadb). Proxied by Traefik.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: craftverse-keycloak-realm
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: craftverse
+data:
+  realm-export.json: |-
+{{ .Files.Get "files/realm-export.json" | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: keycloak
+    app.kubernetes.io/part-of: craftverse
+spec:
+  replicas: {{ .Values.keycloak.replicas }}
+  selector:
+    matchLabels:
+      app: keycloak
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: keycloak
+      annotations:
+        # Roll the pod when the realm import changes.
+        checksum/realm: {{ .Files.Get "files/realm-export.json" | sha256sum }}
+    spec:
+      containers:
+        - name: keycloak
+          image: {{ .Values.keycloak.image | quote }}
+          args: ["start", "--optimized=false", "--import-realm"]
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: craftverse-keycloak
+                  key: admin-username
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: craftverse-keycloak
+                  key: admin-password
+            - name: KC_DB
+              value: mariadb
+            - name: KC_DB_URL_HOST
+              value: craftverse-mariadb.{{ .Release.Namespace }}.svc.cluster.local
+            - name: KC_DB_URL_DATABASE
+              value: {{ .Values.db.keycloakDatabase | quote }}
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: craftverse-db
+                  key: keycloak-username
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: craftverse-db
+                  key: keycloak-password
+            - name: KC_HOSTNAME
+              value: {{ printf "https://%s" .Values.hosts.auth | quote }}
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+          ports:
+            - name: http
+              containerPort: {{ .Values.keycloak.port }}
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.keycloak.resources | nindent 12 }}
+      volumes:
+        - name: realm
+          configMap:
+            name: craftverse-keycloak-realm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: keycloak
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  selector:
+    app: keycloak
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+  namespace: {{ .Release.Namespace }}
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: {{ .Values.tls.secretName }}
+      hosts:
+        - {{ .Values.hosts.auth | quote }}
+  rules:
+    - host: {{ .Values.hosts.auth | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak
+                port:
+                  name: http

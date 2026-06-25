@@ -1,0 +1,31 @@
+.idea
+*.iml
+
+# Go
+/backend/bin/
+/backend/tmp/
+*.test
+*.out
+
+# Node / frontend
+node_modules/
+/frontend/dist/
+/frontend/.vite/
+*.local
+
+# Env
+.env
+*.env.local
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Helm
+deploy/helm/**/charts/
+deploy/helm/**/*.tgz
+
+# Local TLS certs (mkcert) — never commit private keys
+/traefik/certs/
