@@ -13,6 +13,8 @@ import { LocationEditDialog } from "./LocationEditDialog";
 interface LocationEditorValue {
   /** Open the edit modal for a location. */
   edit: (location: Location) => void;
+  /** Whether the shared edit modal is currently open. */
+  isOpen: boolean;
 }
 
 const Ctx = createContext<LocationEditorValue | null>(null);
@@ -40,7 +42,7 @@ export function LocationEditProvider({
   }, []);
 
   return (
-    <Ctx.Provider value={{ edit }}>
+    <Ctx.Provider value={{ edit, isOpen: open }}>
       {children}
       <LocationEditDialog
         location={location}

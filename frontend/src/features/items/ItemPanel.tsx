@@ -25,7 +25,7 @@ import { TokenInput } from "./TokenInput";
 import { ItemAutocomplete } from "./ItemAutocomplete";
 import { LocationSelect } from "./LocationSelect";
 import { LocationPicker } from "./LocationPicker";
-import { LocationEditButton } from "./LocationEditProvider";
+import { LocationEditButton, useLocationEditor } from "./LocationEditProvider";
 import { CraftingTree } from "./CraftingTree";
 import { ForceDeleteDialog } from "./ForceDeleteDialog";
 
@@ -53,6 +53,7 @@ export function ItemPanel({
 }: Props) {
   const { toast } = useToast();
   const { isAuthenticated: canEdit } = useAppAuth();
+  const locationEditor = useLocationEditor();
   const [detail, setDetail] = useState<ItemDetail | null>(null);
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [loading, setLoading] = useState(false);
@@ -205,7 +206,20 @@ export function ItemPanel({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-md">
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-md"
+        // The location editor is a sibling dialog portaled to <body>. Closing it
+        // (overlay click, Escape, X) otherwise registers as an interaction
+        // "outside" this panel and dismisses the whole drawer. Ignore dismiss
+        // events while that nested dialog is open.
+        onInteractOutside={(e) => {
+          if (locationEditor?.isOpen) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (locationEditor?.isOpen) e.preventDefault();
+        }}
+      >
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
